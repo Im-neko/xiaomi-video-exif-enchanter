@@ -18,6 +18,22 @@ from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 
 
+# タイムスタンプ検出用の正規表現パターン定数
+TIMESTAMP_PATTERNS = [
+    # @記号付きドット区切り形式: @ 2025/05/28 19.41.14
+    r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:.](\d{2})[:.](\d{2})',
+    # @記号付きコロン区切り形式: @ 2025/05/28 19:41:14
+    r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
+    # 数字のみ形式: 20250528 19:41:14
+    r'@?\s*(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})',
+]
+
+# デフォルト設定
+DEFAULT_CONFIDENCE_THRESHOLD = 0.6
+DEFAULT_CROP_RATIO = 0.25
+SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm'}
+
+
 class XiaomiVideoEXIFEnhancer:
     """Xiaomiホームカメラ映像のEXIF情報を拡張するクラス"""
     
@@ -30,7 +46,7 @@ class XiaomiVideoEXIFEnhancer:
         """
         self.debug = debug
         self.languages = languages or ['en', 'ja']
-        self.confidence_threshold = 0.6  # デフォルトの信頼度閾値
+        self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
         
         try:
             if debug:
@@ -125,9 +141,8 @@ class XiaomiVideoEXIFEnhancer:
         Returns:
             サポートされている場合True
         """
-        supported_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm'}
         file_extension = Path(video_path).suffix.lower()
-        return file_extension in supported_extensions
+        return file_extension in SUPPORTED_VIDEO_EXTENSIONS
     
     def extract_first_frame(self, video_path: str) -> np.ndarray:
         """映像の1フレーム目を抽出
@@ -198,12 +213,12 @@ class XiaomiVideoEXIFEnhancer:
                 print(f"Failed to save debug frame: {e}")
             return False
     
-    def crop_timestamp_area(self, frame: np.ndarray, crop_ratio: float = 0.25) -> np.ndarray:
-        """左上の日時領域をクロップ
+    def crop_timestamp_area(self, frame: np.ndarray, crop_ratio: Optional[float] = None) -> np.ndarray:
+        """左上の日時領域をクロップ（適応的または固定比率）
         
         Args:
             frame: 入力フレーム
-            crop_ratio: クロップ比率（0.1-1.0、デフォルト0.25）
+            crop_ratio: クロップ比率（0.1-1.0、Noneの場合は適応的に決定）
             
         Returns:
             クロップされた画像
@@ -213,6 +228,12 @@ class XiaomiVideoEXIFEnhancer:
         """
         if len(frame.shape) != 3:
             raise ValueError(f"Invalid frame format: expected 3D array, got shape {frame.shape}")
+        
+        # 適応的クロップ比率の決定
+        if crop_ratio is None:
+            crop_ratio = self.get_optimal_crop_ratio(frame)
+            if self.debug:
+                print(f"Using adaptive crop ratio: {crop_ratio}")
         
         if not 0.1 <= crop_ratio <= 1.0:
             raise ValueError(f"Invalid crop_ratio: {crop_ratio}, must be between 0.1 and 1.0")
@@ -273,20 +294,6 @@ class XiaomiVideoEXIFEnhancer:
         else:  # 4K and above
             return 0.15
     
-    def crop_timestamp_area_adaptive(self, frame: np.ndarray) -> np.ndarray:
-        """解像度に応じて適応的に日時領域をクロップ
-        
-        Args:
-            frame: 入力フレーム
-            
-        Returns:
-            クロップされた画像
-        """
-        optimal_ratio = self.get_optimal_crop_ratio(frame)
-        if self.debug:
-            print(f"Using adaptive crop ratio: {optimal_ratio}")
-        return self.crop_timestamp_area(frame, optimal_ratio)
-    
     def extract_timestamp(self, cropped_frame: np.ndarray) -> Optional[str]:
         """OCRで日時文字列を抽出
         
@@ -323,7 +330,6 @@ class XiaomiVideoEXIFEnhancer:
         Returns:
             最適なタイムスタンプ文字列、見つからない場合はNone
         """
-        timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
         timestamp_candidates = []
         
         for (bbox, text, conf) in ocr_results:
@@ -332,10 +338,13 @@ class XiaomiVideoEXIFEnhancer:
             
             # 信頼度フィルタリング
             if conf >= self.confidence_threshold:
-                if re.search(timestamp_pattern, text):
-                    timestamp_candidates.append((text, conf, bbox))
-                    if self.debug:
-                        print(f"Timestamp candidate: '{text}' (confidence: {conf:.3f})")
+                # 複数パターンでマッチを試行
+                for pattern in TIMESTAMP_PATTERNS:
+                    if re.search(pattern, text):
+                        timestamp_candidates.append((text, conf, bbox))
+                        if self.debug:
+                            print(f"Timestamp candidate: '{text}' (confidence: {conf:.3f})")
+                        break  # マッチしたら他のパターンは試行しない
         
         if not timestamp_candidates:
             if self.debug:
@@ -376,7 +385,6 @@ class XiaomiVideoEXIFEnhancer:
             result['ocr_time'] = time.time() - start_time
             result['total_detections'] = len(ocr_results)
             
-            timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
             candidates = []
             
             for (bbox, text, conf) in ocr_results:
@@ -386,8 +394,12 @@ class XiaomiVideoEXIFEnhancer:
                     'bbox': bbox
                 })
                 
-                if conf >= self.confidence_threshold and re.search(timestamp_pattern, text):
-                    candidates.append((text, conf, bbox))
+                if conf >= self.confidence_threshold:
+                    # 複数パターンでマッチを試行
+                    for pattern in TIMESTAMP_PATTERNS:
+                        if re.search(pattern, text):
+                            candidates.append((text, conf, bbox))
+                            break
             
             result['valid_candidates'] = len(candidates)
             
@@ -462,13 +474,7 @@ class XiaomiVideoEXIFEnhancer:
         if self.debug:
             print(f"Parsing timestamp: {timestamp_str}")
         
-        patterns = [
-            r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:.](\d{2})[:.](\d{2})',
-            r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
-            r'@?\s*(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})',
-        ]
-        
-        for i, pattern in enumerate(patterns):
+        for i, pattern in enumerate(TIMESTAMP_PATTERNS):
             match = re.search(pattern, timestamp_str)
             if match:
                 year, month, day, hour, minute, second = match.groups()

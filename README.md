@@ -47,8 +47,14 @@ python exif_enhancer.py input.mp4 --location "リビング" --output output.mp4
 git clone https://github.com/your-username/xiaomi-video-exif-enchanter.git
 cd xiaomi-video-exif-enchanter
 
-# 依存関係をインストール
+# 基本的な依存関係をインストール
 pip install -r requirements.txt
+
+# または、editable installで開発環境をセットアップ
+pip install -e .
+
+# 開発用依存関係も含めてインストール
+pip install -e .[dev]
 ```
 
 ### 依存ライブラリ
