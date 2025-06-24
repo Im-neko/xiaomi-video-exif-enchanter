@@ -66,6 +66,9 @@ pip install -r requirements.txt
 ### サンプル動画について
 - **ファイル名**: `sample.mp4`
 - **解像度**: 640x360 pixels
+- **埋め込み時刻**: 2025/05/28 19:41:14（1フレーム目左上に表示）
+- **OCR結果例**: `@ 2025/05/28 19.41.14 ` (信頼度: 0.78)
+- **期待される出力**: 日時情報が正常にパースされ、EXIFメタデータとして設定される
 - **用途**: 機能テスト・デモンストレーション
 
 ## 使用方法
@@ -75,11 +78,17 @@ pip install -r requirements.txt
 # サンプル動画で基本処理をテスト
 python exif_enhancer.py sample.mp4
 
-# デバッグモードでの詳細確認
+# デバッグモードでの詳細確認（推奨）
 python exif_enhancer.py sample.mp4 --debug
 
 # 撮影場所を指定してテスト
 python exif_enhancer.py sample.mp4 --location "テストルーム"
+
+# 期待される処理フロー（デバッグモード時）
+# ✓ Frame extracted successfully, shape: (360, 640, 3)
+# ✓ OCR result: '@ 2025/05/28 19.41.14 ' (confidence: 0.78)
+# ✓ Timestamp found: @ 2025/05/28 19.41.14 
+# ✓ Timestamp parsed successfully: 2025-05-28 19:41:14
 ```
 
 ### 基本的な使用方法
