@@ -18,6 +18,7 @@ from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 from video_error_handler import VideoErrorHandler, VideoErrorType
 from output_path_generator import OutputPathGenerator
+from metadata_manager import MetadataManager
 
 
 # タイムスタンプ検出用の正規表現パターン定数
@@ -55,6 +56,9 @@ class XiaomiVideoEXIFEnhancer:
         
         # 出力パス生成器を初期化
         self.path_generator = OutputPathGenerator(debug=debug)
+        
+        # メタデータ管理器を初期化
+        self.metadata_manager = MetadataManager(debug=debug)
         
         try:
             if debug:
@@ -545,14 +549,16 @@ class XiaomiVideoEXIFEnhancer:
         return None
     
     def add_exif_data(self, video_path: str, output_path: str, 
-                     timestamp: Optional[datetime], location: Optional[str] = None) -> bool:
-        """EXIF情報を追加して映像を出力
+                     timestamp: Optional[datetime], location: Optional[str] = None,
+                     additional_metadata: Optional[Dict[str, str]] = None) -> bool:
+        """EXIF情報を追加して映像を出力（改良版）
         
         Args:
             video_path: 入力映像ファイルのパス
             output_path: 出力映像ファイルのパス
             timestamp: 設定するタイムスタンプ
             location: 設定する場所情報
+            additional_metadata: 追加のメタデータ
             
         Returns:
             処理成功時True、失敗時False
@@ -560,29 +566,79 @@ class XiaomiVideoEXIFEnhancer:
         try:
             import ffmpeg
         except ImportError:
-            print("Error: ffmpeg-python is not installed")
+            error_msg = "Error: ffmpeg-python is not installed"
+            print(error_msg)
+            if self.debug:
+                print("Install with: pip install ffmpeg-python")
             return False
         
-        metadata = {}
-        if timestamp:
-            metadata['creation_time'] = timestamp.isoformat() + 'Z'
-        if location:
-            metadata['location'] = location
+        if self.debug:
+            print(f"Adding EXIF data to: {video_path}")
+            print(f"Output path: {output_path}")
+            print(f"Timestamp: {timestamp}")
+            print(f"Location: {location}")
+        
+        # MetadataManagerを使用してメタデータを作成
+        metadata = self.metadata_manager.create_metadata_dict(
+            timestamp=timestamp,
+            location=location,
+            additional_metadata=additional_metadata
+        )
+        
+        # 既存メタデータの取得と統合
+        if self.debug:
+            existing_metadata = self.metadata_manager.get_existing_metadata(video_path)
+            if existing_metadata:
+                print(f"Found existing metadata: {existing_metadata}")
+                metadata = self.metadata_manager.merge_metadata(
+                    existing_metadata, metadata, preserve_existing=False
+                )
+        
+        # メタデータの妥当性検証
+        is_valid, issues = self.metadata_manager.validate_metadata(metadata)
+        if not is_valid:
+            print("Warning: Metadata validation issues detected:")
+            for issue in issues:
+                print(f"  - {issue}")
+            if self.debug:
+                print("Proceeding with potentially invalid metadata...")
+        
+        if self.debug:
+            print("Final metadata to embed:")
+            print(self.metadata_manager.format_metadata_for_display(metadata))
         
         try:
+            # FFmpegでメタデータを埋め込み
+            if self.debug:
+                print("Running FFmpeg with metadata embedding...")
+            
             (
                 ffmpeg
                 .input(video_path)
                 .output(output_path, **{'metadata': metadata})
                 .overwrite_output()
-                .run(quiet=True)
+                .run(quiet=not self.debug)
             )
+            
+            if self.debug:
+                print("✓ FFmpeg processing completed successfully")
+            
             return True
+            
         except ffmpeg.Error as e:
-            print(f"FFmpeg error: {e}")
+            error_msg = f"FFmpeg error: {e}"
+            print(error_msg)
+            if self.debug:
+                print("FFmpeg stderr:")
+                if hasattr(e, 'stderr') and e.stderr:
+                    print(e.stderr.decode('utf-8', errors='replace'))
             return False
         except Exception as e:
-            print(f"Unexpected error during video processing: {e}")
+            error_msg = f"Unexpected error during video processing: {e}"
+            print(error_msg)
+            if self.debug:
+                import traceback
+                traceback.print_exc()
             return False
     
     def process_video(self, input_path: str, output_path: str, 
