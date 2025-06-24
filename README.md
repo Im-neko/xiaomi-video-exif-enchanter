@@ -1,0 +1,89 @@
+# Xiaomi Video EXIF Enchanter
+
+Xiaomiホームカメラ(C301)で録画された映像のEXIF情報を拡張するツール
+
+## 仕様
+
+### 1. 対応機器
+- Xiaomiホームカメラ C301で録画された映像ファイル
+
+### 2. 日時情報の付与
+- 1フレーム目の左上に記載される日時を読み取り
+- EXIFのファイル作成日として付与
+
+### 3. 撮影場所の付与
+- 指定された撮影場所をEXIF情報に追加
+
+## Technical Specifications
+
+### 推奨技術スタック
+- **Python**: メイン実装言語
+- **OpenCV**: 映像フレーム抽出・画像処理
+- **Tesseract/EasyOCR**: 日時テキスト読み取り
+- **exifread/piexif**: EXIF情報操作
+- **ffmpeg-python**: 映像ファイル処理
+
+### 実装アーキテクチャ
+1. 映像の1フレーム目を抽出
+2. 左上領域をクロップしてOCR処理
+3. 日時文字列をパースして標準形式に変換
+4. EXIFメタデータとして撮影日時・場所を埋め込み
+5. 処理済み映像ファイルを出力
+
+### CLI設計
+```bash
+python exif_enhancer.py input.mp4 --location "リビング" --output output.mp4
+```
+
+## セットアップ
+
+### 必要要件
+- Python 3.8以上
+- FFmpeg (システムにインストール済みであること)
+
+### インストール
+```bash
+# リポジトリをクローン
+git clone https://github.com/your-username/xiaomi-video-exif-enchanter.git
+cd xiaomi-video-exif-enchanter
+
+# 依存関係をインストール
+pip install -r requirements.txt
+```
+
+### 依存ライブラリ
+- opencv-python==4.9.0.80
+- easyocr==1.7.0
+- piexif==1.1.3
+- ffmpeg-python==0.2.0
+- numpy==1.24.3
+- Pillow==10.0.0
+
+## 使用方法
+
+### 基本的な使用方法
+```bash
+# 基本的な処理（自動で出力ファイル名を生成）
+python exif_enhancer.py input.mp4
+
+# 撮影場所を指定
+python exif_enhancer.py input.mp4 --location "リビング"
+
+# 出力ファイル名を指定
+python exif_enhancer.py input.mp4 --output enhanced_video.mp4
+
+# 全オプションを指定
+python exif_enhancer.py input.mp4 --location "寝室" --output bedroom_video.mp4
+```
+
+### オプション
+- `input`: 入力映像ファイルパス（必須）
+- `-o, --output`: 出力映像ファイルパス（省略時は自動生成）
+- `-l, --location`: 撮影場所（EXIF情報に追加）
+
+### 処理フロー
+1. ✓ First frame extracted - 1フレーム目を抽出
+2. ✓ Timestamp area cropped - 日時領域をクロップ
+3. ✓ Timestamp detected - OCRで日時を検出
+4. ✓ Timestamp parsed - 日時をパース
+5. ✓ Video processed successfully - 映像処理完了
