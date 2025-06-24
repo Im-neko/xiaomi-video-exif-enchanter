@@ -20,11 +20,22 @@ import numpy as np
 class XiaomiVideoEXIFEnhancer:
     """Xiaomiホームカメラ映像のEXIF情報を拡張するクラス"""
     
-    def __init__(self) -> None:
-        """初期化処理"""
+    def __init__(self, debug: bool = False) -> None:
+        """初期化処理
+        
+        Args:
+            debug: デバッグモードの有効/無効
+        """
+        self.debug = debug
         try:
+            if debug:
+                print("Initializing EasyOCR reader...")
             self.reader = easyocr.Reader(['en'])
+            if debug:
+                print("EasyOCR reader initialized successfully")
         except Exception as e:
+            if debug:
+                print(f"Failed to initialize EasyOCR reader: {e}")
             raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
     
     def extract_first_frame(self, video_path: str) -> np.ndarray:
@@ -39,12 +50,19 @@ class XiaomiVideoEXIFEnhancer:
         Raises:
             ValueError: 映像の読み込みに失敗した場合
         """
+        if self.debug:
+            print(f"Extracting first frame from: {video_path}")
         cap = cv2.VideoCapture(video_path)
         
         try:
             ret, frame = cap.read()
             if not ret:
+                if self.debug:
+                    print(f"Failed to read video: {video_path}")
                 raise ValueError(f"Failed to read video: {video_path}")
+            
+            if self.debug:
+                print(f"Frame extracted successfully, shape: {frame.shape}")
             return frame
         finally:
             cap.release()
@@ -74,17 +92,29 @@ class XiaomiVideoEXIFEnhancer:
             抽出された日時文字列、見つからない場合はNone
         """
         try:
+            if self.debug:
+                print("Running OCR on cropped frame...")
             results = self.reader.readtext(cropped_frame)
-            timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}'
+            timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
+            
+            if self.debug:
+                print(f"OCR detected {len(results)} text regions")
             
             for (bbox, text, conf) in results:
+                if self.debug:
+                    print(f"OCR result: '{text}' (confidence: {conf:.2f})")
                 if conf > 0.5:
                     if re.search(timestamp_pattern, text):
+                        if self.debug:
+                            print(f"Timestamp found: {text}")
                         return text
             
+            if self.debug:
+                print("No valid timestamp found in OCR results")
             return None
         except Exception as e:
-            print(f"Warning: OCR processing failed: {e}")
+            if self.debug:
+                print(f"OCR processing failed: {e}")
             return None
     
     def parse_timestamp(self, timestamp_str: Optional[str]) -> Optional[datetime]:
@@ -97,25 +127,36 @@ class XiaomiVideoEXIFEnhancer:
             パースされたdatetimeオブジェクト、失敗した場合はNone
         """
         if not timestamp_str:
+            if self.debug:
+                print("No timestamp string provided")
             return None
         
+        if self.debug:
+            print(f"Parsing timestamp: {timestamp_str}")
+        
         patterns = [
-            r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
-            r'(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})',
+            r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:.](\d{2})[:.](\d{2})',
+            r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
+            r'@?\s*(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})',
         ]
         
-        for pattern in patterns:
+        for i, pattern in enumerate(patterns):
             match = re.search(pattern, timestamp_str)
             if match:
                 year, month, day, hour, minute, second = match.groups()
                 try:
                     dt = datetime(int(year), int(month), int(day), 
                                 int(hour), int(minute), int(second))
+                    if self.debug:
+                        print(f"Timestamp parsed successfully: {dt}")
                     return dt
                 except ValueError as e:
-                    print(f"Warning: Invalid date values in '{timestamp_str}': {e}")
+                    if self.debug:
+                        print(f"Invalid date values in '{timestamp_str}' (pattern {i+1}): {e}")
                     continue
         
+        if self.debug:
+            print(f"Failed to parse timestamp: {timestamp_str}")
         return None
     
     def add_exif_data(self, video_path: str, output_path: str, 
