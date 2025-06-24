@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 from video_error_handler import VideoErrorHandler, VideoErrorType
+from output_path_generator import OutputPathGenerator
 
 
 # タイムスタンプ検出用の正規表現パターン定数
@@ -51,6 +52,9 @@ class XiaomiVideoEXIFEnhancer:
         
         # 映像エラーハンドラーを初期化
         self.error_handler = VideoErrorHandler(debug=debug)
+        
+        # 出力パス生成器を初期化
+        self.path_generator = OutputPathGenerator(debug=debug)
         
         try:
             if debug:
@@ -712,22 +716,32 @@ Examples:
             print(f"Error: Invalid video file format: {args.input}")
         sys.exit(1)
     
-    # 出力パスの設定
+    # 出力パス生成器を初期化
+    path_generator = OutputPathGenerator(debug=args.debug)
+    
+    # 出力パスの設定・生成
     if not args.output:
-        input_path = Path(args.input)
-        args.output = str(input_path.with_stem(f"{input_path.stem}_enhanced"))
+        try:
+            args.output = path_generator.generate_output_path(args.input)
+            if args.debug:
+                print(f"Auto-generated output path: {args.output}")
+        except Exception as e:
+            print(f"Error: Failed to generate output path: {e}")
+            sys.exit(1)
     
     # 出力パスの妥当性チェック
-    if not validate_output_path(args.output):
-        print(f"Error: Cannot write to output path: {args.output}")
-        sys.exit(1)
-    
-    # 出力ディレクトリの存在確認・作成
-    output_dir = Path(args.output).parent
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        print(f"Error: Cannot create output directory: {e}")
+    is_valid, issues = path_generator.validate_output_path(args.output)
+    if not is_valid:
+        print("Error: Output path validation failed:")
+        for issue in issues:
+            print(f"  - {issue}")
+        
+        # 代替パスの提案
+        alternatives = path_generator.suggest_alternative_paths(args.input, count=3)
+        if alternatives:
+            print("\n💡 Suggested alternative paths:")
+            for i, alt in enumerate(alternatives, 1):
+                print(f"  {i}. {alt}")
         sys.exit(1)
     
     # デバッグ情報の出力
