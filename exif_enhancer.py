@@ -16,6 +16,25 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
+from video_error_handler import VideoErrorHandler, VideoErrorType
+from output_path_generator import OutputPathGenerator
+from metadata_manager import MetadataManager
+
+
+# タイムスタンプ検出用の正規表現パターン定数
+TIMESTAMP_PATTERNS = [
+    # @記号付きドット区切り形式: @ 2025/05/28 19.41.14
+    r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:.](\d{2})[:.](\d{2})',
+    # @記号付きコロン区切り形式: @ 2025/05/28 19:41:14
+    r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
+    # 数字のみ形式: 20250528 19:41:14
+    r'@?\s*(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})',
+]
+
+# デフォルト設定
+DEFAULT_CONFIDENCE_THRESHOLD = 0.6
+DEFAULT_CROP_RATIO = 0.25
+SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm'}
 
 
 class XiaomiVideoEXIFEnhancer:
@@ -30,7 +49,16 @@ class XiaomiVideoEXIFEnhancer:
         """
         self.debug = debug
         self.languages = languages or ['en', 'ja']
-        self.confidence_threshold = 0.6  # デフォルトの信頼度閾値
+        self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
+        
+        # 映像エラーハンドラーを初期化
+        self.error_handler = VideoErrorHandler(debug=debug)
+        
+        # 出力パス生成器を初期化
+        self.path_generator = OutputPathGenerator(debug=debug)
+        
+        # メタデータ管理器を初期化
+        self.metadata_manager = MetadataManager(debug=debug)
         
         try:
             if debug:
@@ -125,12 +153,11 @@ class XiaomiVideoEXIFEnhancer:
         Returns:
             サポートされている場合True
         """
-        supported_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm'}
         file_extension = Path(video_path).suffix.lower()
-        return file_extension in supported_extensions
+        return file_extension in SUPPORTED_VIDEO_EXTENSIONS
     
     def extract_first_frame(self, video_path: str) -> np.ndarray:
-        """映像の1フレーム目を抽出
+        """映像の1フレーム目を抽出（改良されたエラーハンドリング付き）
         
         Args:
             video_path: 映像ファイルのパス
@@ -141,29 +168,51 @@ class XiaomiVideoEXIFEnhancer:
         Raises:
             ValueError: 映像の読み込みに失敗した場合
             FileNotFoundError: ファイルが存在しない場合
+            PermissionError: アクセス権限がない場合
         """
         if self.debug:
             print(f"Extracting first frame from: {video_path}")
         
-        # ファイルの存在確認
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(f"Video file not found: {video_path}")
-        
-        # サポートされた形式かどうか確認
-        if not self.is_supported_format(video_path):
-            raise ValueError(f"Unsupported video format: {video_path}")
+        # 映像ファイルの詳細検証
+        try:
+            # エラーハンドラーで詳細分析
+            is_valid = self.error_handler.validate_video_file(video_path, raise_on_error=True)
+        except (FileNotFoundError, PermissionError, ValueError, RuntimeError) as e:
+            # ユーザーフレンドリーなエラーレポート生成
+            error_report = self.error_handler.create_error_report(video_path)
+            
+            if self.debug:
+                print("\n" + "="*50)
+                print("VIDEO FILE ERROR DETECTED")
+                print("="*50)
+                print(error_report['user_message'])
+                print("\n回復のための提案:")
+                for i, suggestion in enumerate(error_report['recovery_suggestions'], 1):
+                    print(f"  {i}. {suggestion}")
+                print("="*50)
+            else:
+                # 非デバッグモードでも重要な情報は表示
+                print(f"\n❌ 映像ファイルエラー: {Path(video_path).name}")
+                print(error_report['user_message'])
+            
+            # 元の例外を再発生
+            raise
         
         cap = cv2.VideoCapture(video_path)
         
         try:
             if not cap.isOpened():
-                raise ValueError(f"Cannot open video file: {video_path}")
+                error_msg = f"Cannot open video file: {video_path}"
+                if self.debug:
+                    print(f"OpenCV error: {error_msg}")
+                raise ValueError(error_msg)
             
             ret, frame = cap.read()
             if not ret or frame is None:
+                error_msg = f"Failed to read first frame from: {video_path}"
                 if self.debug:
-                    print(f"Failed to read first frame from: {video_path}")
-                raise ValueError(f"Failed to read first frame from: {video_path}")
+                    print(f"Frame reading error: {error_msg}")
+                raise ValueError(error_msg)
             
             if self.debug:
                 print(f"Frame extracted successfully, shape: {frame.shape}")
@@ -171,7 +220,10 @@ class XiaomiVideoEXIFEnhancer:
             
             # フレーム形式の確認とバリデーション
             if len(frame.shape) != 3 or frame.shape[2] != 3:
-                raise ValueError(f"Invalid frame format: expected 3-channel color image, got shape {frame.shape}")
+                error_msg = f"Invalid frame format: expected 3-channel color image, got shape {frame.shape}"
+                if self.debug:
+                    print(f"Frame format error: {error_msg}")
+                raise ValueError(error_msg)
             
             return frame
         finally:
@@ -198,12 +250,12 @@ class XiaomiVideoEXIFEnhancer:
                 print(f"Failed to save debug frame: {e}")
             return False
     
-    def crop_timestamp_area(self, frame: np.ndarray, crop_ratio: float = 0.25) -> np.ndarray:
-        """左上の日時領域をクロップ
+    def crop_timestamp_area(self, frame: np.ndarray, crop_ratio: Optional[float] = None) -> np.ndarray:
+        """左上の日時領域をクロップ（適応的または固定比率）
         
         Args:
             frame: 入力フレーム
-            crop_ratio: クロップ比率（0.1-1.0、デフォルト0.25）
+            crop_ratio: クロップ比率（0.1-1.0、Noneの場合は適応的に決定）
             
         Returns:
             クロップされた画像
@@ -213,6 +265,12 @@ class XiaomiVideoEXIFEnhancer:
         """
         if len(frame.shape) != 3:
             raise ValueError(f"Invalid frame format: expected 3D array, got shape {frame.shape}")
+        
+        # 適応的クロップ比率の決定
+        if crop_ratio is None:
+            crop_ratio = self.get_optimal_crop_ratio(frame)
+            if self.debug:
+                print(f"Using adaptive crop ratio: {crop_ratio}")
         
         if not 0.1 <= crop_ratio <= 1.0:
             raise ValueError(f"Invalid crop_ratio: {crop_ratio}, must be between 0.1 and 1.0")
@@ -273,20 +331,6 @@ class XiaomiVideoEXIFEnhancer:
         else:  # 4K and above
             return 0.15
     
-    def crop_timestamp_area_adaptive(self, frame: np.ndarray) -> np.ndarray:
-        """解像度に応じて適応的に日時領域をクロップ
-        
-        Args:
-            frame: 入力フレーム
-            
-        Returns:
-            クロップされた画像
-        """
-        optimal_ratio = self.get_optimal_crop_ratio(frame)
-        if self.debug:
-            print(f"Using adaptive crop ratio: {optimal_ratio}")
-        return self.crop_timestamp_area(frame, optimal_ratio)
-    
     def extract_timestamp(self, cropped_frame: np.ndarray) -> Optional[str]:
         """OCRで日時文字列を抽出
         
@@ -323,33 +367,53 @@ class XiaomiVideoEXIFEnhancer:
         Returns:
             最適なタイムスタンプ文字列、見つからない場合はNone
         """
-        timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
         timestamp_candidates = []
+        fallback_candidates = []  # 信頼度が低いが形式が合致するもの
         
         for (bbox, text, conf) in ocr_results:
             if self.debug:
                 print(f"OCR result: '{text}' (confidence: {conf:.3f})")
             
-            # 信頼度フィルタリング
-            if conf >= self.confidence_threshold:
-                if re.search(timestamp_pattern, text):
-                    timestamp_candidates.append((text, conf, bbox))
-                    if self.debug:
-                        print(f"Timestamp candidate: '{text}' (confidence: {conf:.3f})")
+            # 複数パターンでマッチを試行
+            pattern_matched = False
+            for pattern in TIMESTAMP_PATTERNS:
+                if re.search(pattern, text):
+                    if conf >= self.confidence_threshold:
+                        timestamp_candidates.append((text, conf, bbox))
+                        if self.debug:
+                            print(f"Timestamp candidate: '{text}' (confidence: {conf:.3f})")
+                    else:
+                        # 信頼度が低いがパターンマッチするものをフォールバック候補に
+                        fallback_candidates.append((text, conf, bbox))
+                        if self.debug:
+                            print(f"Fallback timestamp candidate: '{text}' (confidence: {conf:.3f})")
+                    pattern_matched = True
+                    break
         
-        if not timestamp_candidates:
+        # 通常の候補がある場合
+        if timestamp_candidates:
+            best_candidate = max(timestamp_candidates, key=lambda x: x[1])
+            best_text, best_conf, best_bbox = best_candidate
             if self.debug:
-                print(f"No valid timestamp found above confidence threshold {self.confidence_threshold}")
-            return None
+                print(f"Best timestamp: '{best_text}' (confidence: {best_conf:.3f})")
+            return best_text
         
-        # 最も信頼度の高いタイムスタンプを選択
-        best_candidate = max(timestamp_candidates, key=lambda x: x[1])
-        best_text, best_conf, best_bbox = best_candidate
+        # フォールバック候補を検討（信頼度0.3以上）
+        if fallback_candidates:
+            valid_fallbacks = [(text, conf, bbox) for text, conf, bbox in fallback_candidates if conf >= 0.3]
+            if valid_fallbacks:
+                best_fallback = max(valid_fallbacks, key=lambda x: x[1])
+                best_text, best_conf, best_bbox = best_fallback
+                if self.debug:
+                    print(f"Using fallback timestamp: '{best_text}' (confidence: {best_conf:.3f})")
+                return best_text
         
         if self.debug:
-            print(f"Best timestamp: '{best_text}' (confidence: {best_conf:.3f})")
+            print(f"No valid timestamp found above confidence threshold {self.confidence_threshold}")
+            if fallback_candidates:
+                print(f"Fallback candidates available but confidence too low")
         
-        return best_text
+        return None
     
     def extract_timestamp_with_details(self, cropped_frame: np.ndarray) -> Dict[str, Any]:
         """詳細情報付きでタイムスタンプを抽出
@@ -376,7 +440,6 @@ class XiaomiVideoEXIFEnhancer:
             result['ocr_time'] = time.time() - start_time
             result['total_detections'] = len(ocr_results)
             
-            timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
             candidates = []
             
             for (bbox, text, conf) in ocr_results:
@@ -386,8 +449,12 @@ class XiaomiVideoEXIFEnhancer:
                     'bbox': bbox
                 })
                 
-                if conf >= self.confidence_threshold and re.search(timestamp_pattern, text):
-                    candidates.append((text, conf, bbox))
+                if conf >= self.confidence_threshold:
+                    # 複数パターンでマッチを試行
+                    for pattern in TIMESTAMP_PATTERNS:
+                        if re.search(pattern, text):
+                            candidates.append((text, conf, bbox))
+                            break
             
             result['valid_candidates'] = len(candidates)
             
@@ -462,13 +529,7 @@ class XiaomiVideoEXIFEnhancer:
         if self.debug:
             print(f"Parsing timestamp: {timestamp_str}")
         
-        patterns = [
-            r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:.](\d{2})[:.](\d{2})',
-            r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
-            r'@?\s*(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})',
-        ]
-        
-        for i, pattern in enumerate(patterns):
+        for i, pattern in enumerate(TIMESTAMP_PATTERNS):
             match = re.search(pattern, timestamp_str)
             if match:
                 year, month, day, hour, minute, second = match.groups()
@@ -488,14 +549,16 @@ class XiaomiVideoEXIFEnhancer:
         return None
     
     def add_exif_data(self, video_path: str, output_path: str, 
-                     timestamp: Optional[datetime], location: Optional[str] = None) -> bool:
-        """EXIF情報を追加して映像を出力
+                     timestamp: Optional[datetime], location: Optional[str] = None,
+                     additional_metadata: Optional[Dict[str, str]] = None) -> bool:
+        """EXIF情報を追加して映像を出力（改良版）
         
         Args:
             video_path: 入力映像ファイルのパス
             output_path: 出力映像ファイルのパス
             timestamp: 設定するタイムスタンプ
             location: 設定する場所情報
+            additional_metadata: 追加のメタデータ
             
         Returns:
             処理成功時True、失敗時False
@@ -503,29 +566,79 @@ class XiaomiVideoEXIFEnhancer:
         try:
             import ffmpeg
         except ImportError:
-            print("Error: ffmpeg-python is not installed")
+            error_msg = "Error: ffmpeg-python is not installed"
+            print(error_msg)
+            if self.debug:
+                print("Install with: pip install ffmpeg-python")
             return False
         
-        metadata = {}
-        if timestamp:
-            metadata['creation_time'] = timestamp.isoformat() + 'Z'
-        if location:
-            metadata['location'] = location
+        if self.debug:
+            print(f"Adding EXIF data to: {video_path}")
+            print(f"Output path: {output_path}")
+            print(f"Timestamp: {timestamp}")
+            print(f"Location: {location}")
+        
+        # MetadataManagerを使用してメタデータを作成
+        metadata = self.metadata_manager.create_metadata_dict(
+            timestamp=timestamp,
+            location=location,
+            additional_metadata=additional_metadata
+        )
+        
+        # 既存メタデータの取得と統合
+        if self.debug:
+            existing_metadata = self.metadata_manager.get_existing_metadata(video_path)
+            if existing_metadata:
+                print(f"Found existing metadata: {existing_metadata}")
+                metadata = self.metadata_manager.merge_metadata(
+                    existing_metadata, metadata, preserve_existing=False
+                )
+        
+        # メタデータの妥当性検証
+        is_valid, issues = self.metadata_manager.validate_metadata(metadata)
+        if not is_valid:
+            print("Warning: Metadata validation issues detected:")
+            for issue in issues:
+                print(f"  - {issue}")
+            if self.debug:
+                print("Proceeding with potentially invalid metadata...")
+        
+        if self.debug:
+            print("Final metadata to embed:")
+            print(self.metadata_manager.format_metadata_for_display(metadata))
         
         try:
+            # FFmpegでメタデータを埋め込み
+            if self.debug:
+                print("Running FFmpeg with metadata embedding...")
+            
             (
                 ffmpeg
                 .input(video_path)
                 .output(output_path, **{'metadata': metadata})
                 .overwrite_output()
-                .run(quiet=True)
+                .run(quiet=not self.debug)
             )
+            
+            if self.debug:
+                print("✓ FFmpeg processing completed successfully")
+            
             return True
+            
         except ffmpeg.Error as e:
-            print(f"FFmpeg error: {e}")
+            error_msg = f"FFmpeg error: {e}"
+            print(error_msg)
+            if self.debug:
+                print("FFmpeg stderr:")
+                if hasattr(e, 'stderr') and e.stderr:
+                    print(e.stderr.decode('utf-8', errors='replace'))
             return False
         except Exception as e:
-            print(f"Unexpected error during video processing: {e}")
+            error_msg = f"Unexpected error during video processing: {e}"
+            print(error_msg)
+            if self.debug:
+                import traceback
+                traceback.print_exc()
             return False
     
     def process_video(self, input_path: str, output_path: str, 
@@ -659,22 +772,32 @@ Examples:
             print(f"Error: Invalid video file format: {args.input}")
         sys.exit(1)
     
-    # 出力パスの設定
+    # 出力パス生成器を初期化
+    path_generator = OutputPathGenerator(debug=args.debug)
+    
+    # 出力パスの設定・生成
     if not args.output:
-        input_path = Path(args.input)
-        args.output = str(input_path.with_stem(f"{input_path.stem}_enhanced"))
+        try:
+            args.output = path_generator.generate_output_path(args.input)
+            if args.debug:
+                print(f"Auto-generated output path: {args.output}")
+        except Exception as e:
+            print(f"Error: Failed to generate output path: {e}")
+            sys.exit(1)
     
     # 出力パスの妥当性チェック
-    if not validate_output_path(args.output):
-        print(f"Error: Cannot write to output path: {args.output}")
-        sys.exit(1)
-    
-    # 出力ディレクトリの存在確認・作成
-    output_dir = Path(args.output).parent
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        print(f"Error: Cannot create output directory: {e}")
+    is_valid, issues = path_generator.validate_output_path(args.output)
+    if not is_valid:
+        print("Error: Output path validation failed:")
+        for issue in issues:
+            print(f"  - {issue}")
+        
+        # 代替パスの提案
+        alternatives = path_generator.suggest_alternative_paths(args.input, count=3)
+        if alternatives:
+            print("\n💡 Suggested alternative paths:")
+            for i, alt in enumerate(alternatives, 1):
+                print(f"  {i}. {alt}")
         sys.exit(1)
     
     # デバッグ情報の出力

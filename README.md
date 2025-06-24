@@ -41,14 +41,20 @@ python exif_enhancer.py input.mp4 --location "リビング" --output output.mp4
 - Python 3.8以上
 - FFmpeg (システムにインストール済みであること)
 
-### インストール
+### 基本インストール
 ```bash
 # リポジトリをクローン
 git clone https://github.com/your-username/xiaomi-video-exif-enchanter.git
 cd xiaomi-video-exif-enchanter
 
-# 依存関係をインストール
+# 基本的な依存関係をインストール
 pip install -r requirements.txt
+```
+
+### 開発者向けインストール
+```bash
+# 開発用依存関係も含めてインストール
+pip install -e .[dev]
 ```
 
 ### 依存ライブラリ
@@ -129,7 +135,7 @@ python exif_enhancer.py input.mp4 --debug
 
 ## 開発・テスト
 
-### 単体テストの実行
+### テスト実行
 ```bash
 # 基本的なユニットテスト
 python -m unittest test_exif_enhancer.py -v
@@ -137,21 +143,22 @@ python -m unittest test_exif_enhancer.py -v
 # サンプル動画を使用した統合テスト
 python test_sample_video.py -v
 
-# OCR精度とパフォーマンス分析
-python test_ocr_accuracy.py -v
-
 # 全テストの実行
 python -m unittest discover -s . -p "test_*.py" -v
 ```
 
-### サンプル動画テストの詳細
-sample.mp4を使用したテストでは以下の精度が確認されています：
+### 開発者向け情報
+詳細な技術仕様・拡張ガイドについては [DEVELOPMENT.md](DEVELOPMENT.md) を参照してください。
 
-- **OCR検出精度**: 信頼度 0.775 (77.5%)
-- **タイムスタンプ検出**: `@ 2025/05/28 19.41.14` を正確に検出
-- **パース精度**: datetime(2025, 5, 28, 19, 41, 14) として正しく変換
-- **処理速度**: フレーム抽出 < 1秒、OCR処理 < 10秒
-- **一貫性**: 複数回実行で安定した結果
+### パフォーマンス仕様
+sample.mp4を使用した実測値：
+
+- **フレーム抽出**: 0.017秒 (基準: <1秒)
+- **OCR処理**: 0.471秒 (基準: <10秒)  
+- **総処理時間**: 0.488秒 (基準: <15秒)
+- **OCR信頼度**: 0.775 (77.5%)
+
+※CPU環境での実測値。GPU環境ではさらに高速化が期待されます。
 
 ### トラブルシューティング
 
