@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
+from video_error_handler import VideoErrorHandler, VideoErrorType
 
 
 # タイムスタンプ検出用の正規表現パターン定数
@@ -47,6 +48,9 @@ class XiaomiVideoEXIFEnhancer:
         self.debug = debug
         self.languages = languages or ['en', 'ja']
         self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
+        
+        # 映像エラーハンドラーを初期化
+        self.error_handler = VideoErrorHandler(debug=debug)
         
         try:
             if debug:
@@ -145,7 +149,7 @@ class XiaomiVideoEXIFEnhancer:
         return file_extension in SUPPORTED_VIDEO_EXTENSIONS
     
     def extract_first_frame(self, video_path: str) -> np.ndarray:
-        """映像の1フレーム目を抽出
+        """映像の1フレーム目を抽出（改良されたエラーハンドリング付き）
         
         Args:
             video_path: 映像ファイルのパス
@@ -156,29 +160,51 @@ class XiaomiVideoEXIFEnhancer:
         Raises:
             ValueError: 映像の読み込みに失敗した場合
             FileNotFoundError: ファイルが存在しない場合
+            PermissionError: アクセス権限がない場合
         """
         if self.debug:
             print(f"Extracting first frame from: {video_path}")
         
-        # ファイルの存在確認
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(f"Video file not found: {video_path}")
-        
-        # サポートされた形式かどうか確認
-        if not self.is_supported_format(video_path):
-            raise ValueError(f"Unsupported video format: {video_path}")
+        # 映像ファイルの詳細検証
+        try:
+            # エラーハンドラーで詳細分析
+            is_valid = self.error_handler.validate_video_file(video_path, raise_on_error=True)
+        except (FileNotFoundError, PermissionError, ValueError, RuntimeError) as e:
+            # ユーザーフレンドリーなエラーレポート生成
+            error_report = self.error_handler.create_error_report(video_path)
+            
+            if self.debug:
+                print("\n" + "="*50)
+                print("VIDEO FILE ERROR DETECTED")
+                print("="*50)
+                print(error_report['user_message'])
+                print("\n回復のための提案:")
+                for i, suggestion in enumerate(error_report['recovery_suggestions'], 1):
+                    print(f"  {i}. {suggestion}")
+                print("="*50)
+            else:
+                # 非デバッグモードでも重要な情報は表示
+                print(f"\n❌ 映像ファイルエラー: {Path(video_path).name}")
+                print(error_report['user_message'])
+            
+            # 元の例外を再発生
+            raise
         
         cap = cv2.VideoCapture(video_path)
         
         try:
             if not cap.isOpened():
-                raise ValueError(f"Cannot open video file: {video_path}")
+                error_msg = f"Cannot open video file: {video_path}"
+                if self.debug:
+                    print(f"OpenCV error: {error_msg}")
+                raise ValueError(error_msg)
             
             ret, frame = cap.read()
             if not ret or frame is None:
+                error_msg = f"Failed to read first frame from: {video_path}"
                 if self.debug:
-                    print(f"Failed to read first frame from: {video_path}")
-                raise ValueError(f"Failed to read first frame from: {video_path}")
+                    print(f"Frame reading error: {error_msg}")
+                raise ValueError(error_msg)
             
             if self.debug:
                 print(f"Frame extracted successfully, shape: {frame.shape}")
@@ -186,7 +212,10 @@ class XiaomiVideoEXIFEnhancer:
             
             # フレーム形式の確認とバリデーション
             if len(frame.shape) != 3 or frame.shape[2] != 3:
-                raise ValueError(f"Invalid frame format: expected 3-channel color image, got shape {frame.shape}")
+                error_msg = f"Invalid frame format: expected 3-channel color image, got shape {frame.shape}"
+                if self.debug:
+                    print(f"Frame format error: {error_msg}")
+                raise ValueError(error_msg)
             
             return frame
         finally:
