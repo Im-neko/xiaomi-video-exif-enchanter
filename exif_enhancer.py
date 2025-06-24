@@ -12,31 +12,60 @@ import os
 import sys
 from datetime import datetime
 import re
+import time
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 
 
 class XiaomiVideoEXIFEnhancer:
     """Xiaomiホームカメラ映像のEXIF情報を拡張するクラス"""
     
-    def __init__(self, debug: bool = False) -> None:
+    def __init__(self, debug: bool = False, languages: List[str] = None) -> None:
         """初期化処理
         
         Args:
             debug: デバッグモードの有効/無効
+            languages: OCRで使用する言語リスト（デフォルト: ['en', 'ja']）
         """
         self.debug = debug
+        self.languages = languages or ['en', 'ja']
+        self.confidence_threshold = 0.6  # デフォルトの信頼度閾値
+        
         try:
             if debug:
-                print("Initializing EasyOCR reader...")
-            self.reader = easyocr.Reader(['en'])
+                print(f"Initializing EasyOCR reader with languages: {self.languages}")
+            
+            start_time = time.time()
+            self.reader = easyocr.Reader(self.languages)
+            init_time = time.time() - start_time
+            
             if debug:
-                print("EasyOCR reader initialized successfully")
+                print(f"EasyOCR reader initialized successfully in {init_time:.2f} seconds")
         except Exception as e:
             if debug:
                 print(f"Failed to initialize EasyOCR reader: {e}")
             raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
+    
+    def set_confidence_threshold(self, threshold: float) -> None:
+        """OCR信頼度閾値を設定
+        
+        Args:
+            threshold: 信頼度閾値（0.0-1.0）
+        """
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(f"Threshold must be between 0.0 and 1.0, got {threshold}")
+        self.confidence_threshold = threshold
+        if self.debug:
+            print(f"Confidence threshold set to {threshold}")
+    
+    def get_ocr_languages(self) -> List[str]:
+        """使用中のOCR言語リストを取得
+        
+        Returns:
+            言語コードのリスト
+        """
+        return self.languages.copy()
     
     def get_video_info(self, video_path: str) -> Dict[str, Any]:
         """映像ファイルの基本情報を取得
@@ -270,28 +299,151 @@ class XiaomiVideoEXIFEnhancer:
         try:
             if self.debug:
                 print("Running OCR on cropped frame...")
+            
+            start_time = time.time()
             results = self.reader.readtext(cropped_frame)
-            timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
+            ocr_time = time.time() - start_time
             
             if self.debug:
+                print(f"OCR completed in {ocr_time:.3f} seconds")
                 print(f"OCR detected {len(results)} text regions")
             
-            for (bbox, text, conf) in results:
-                if self.debug:
-                    print(f"OCR result: '{text}' (confidence: {conf:.2f})")
-                if conf > 0.5:
-                    if re.search(timestamp_pattern, text):
-                        if self.debug:
-                            print(f"Timestamp found: {text}")
-                        return text
-            
-            if self.debug:
-                print("No valid timestamp found in OCR results")
-            return None
+            return self._find_best_timestamp_match(results)
         except Exception as e:
             if self.debug:
                 print(f"OCR processing failed: {e}")
             return None
+    
+    def _find_best_timestamp_match(self, ocr_results: List[Tuple]) -> Optional[str]:
+        """OCR結果から最適なタイムスタンプを選択
+        
+        Args:
+            ocr_results: EasyOCRの結果リスト
+            
+        Returns:
+            最適なタイムスタンプ文字列、見つからない場合はNone
+        """
+        timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
+        timestamp_candidates = []
+        
+        for (bbox, text, conf) in ocr_results:
+            if self.debug:
+                print(f"OCR result: '{text}' (confidence: {conf:.3f})")
+            
+            # 信頼度フィルタリング
+            if conf >= self.confidence_threshold:
+                if re.search(timestamp_pattern, text):
+                    timestamp_candidates.append((text, conf, bbox))
+                    if self.debug:
+                        print(f"Timestamp candidate: '{text}' (confidence: {conf:.3f})")
+        
+        if not timestamp_candidates:
+            if self.debug:
+                print(f"No valid timestamp found above confidence threshold {self.confidence_threshold}")
+            return None
+        
+        # 最も信頼度の高いタイムスタンプを選択
+        best_candidate = max(timestamp_candidates, key=lambda x: x[1])
+        best_text, best_conf, best_bbox = best_candidate
+        
+        if self.debug:
+            print(f"Best timestamp: '{best_text}' (confidence: {best_conf:.3f})")
+        
+        return best_text
+    
+    def extract_timestamp_with_details(self, cropped_frame: np.ndarray) -> Dict[str, Any]:
+        """詳細情報付きでタイムスタンプを抽出
+        
+        Args:
+            cropped_frame: クロップされたフレーム
+            
+        Returns:
+            タイムスタンプと詳細情報を含む辞書
+        """
+        result = {
+            'timestamp': None,
+            'confidence': 0.0,
+            'bbox': None,
+            'ocr_time': 0.0,
+            'total_detections': 0,
+            'valid_candidates': 0,
+            'all_results': []
+        }
+        
+        try:
+            start_time = time.time()
+            ocr_results = self.reader.readtext(cropped_frame)
+            result['ocr_time'] = time.time() - start_time
+            result['total_detections'] = len(ocr_results)
+            
+            timestamp_pattern = r'\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}[:.]\d{2}[:.]\d{2}'
+            candidates = []
+            
+            for (bbox, text, conf) in ocr_results:
+                result['all_results'].append({
+                    'text': text,
+                    'confidence': conf,
+                    'bbox': bbox
+                })
+                
+                if conf >= self.confidence_threshold and re.search(timestamp_pattern, text):
+                    candidates.append((text, conf, bbox))
+            
+            result['valid_candidates'] = len(candidates)
+            
+            if candidates:
+                best_text, best_conf, best_bbox = max(candidates, key=lambda x: x[1])
+                result['timestamp'] = best_text
+                result['confidence'] = best_conf
+                result['bbox'] = best_bbox
+            
+        except Exception as e:
+            if self.debug:
+                print(f"OCR processing failed: {e}")
+        
+        return result
+    
+    def test_ocr_performance(self, cropped_frame: np.ndarray, iterations: int = 5) -> Dict[str, float]:
+        """OCR性能をテスト
+        
+        Args:
+            cropped_frame: テスト用フレーム
+            iterations: テスト回数
+            
+        Returns:
+            性能測定結果
+        """
+        times = []
+        successful_runs = 0
+        
+        for i in range(iterations):
+            try:
+                start_time = time.time()
+                self.reader.readtext(cropped_frame)
+                end_time = time.time()
+                times.append(end_time - start_time)
+                successful_runs += 1
+            except Exception:
+                pass
+        
+        if times:
+            return {
+                'average_time': sum(times) / len(times),
+                'min_time': min(times),
+                'max_time': max(times),
+                'successful_runs': successful_runs,
+                'total_runs': iterations,
+                'success_rate': successful_runs / iterations
+            }
+        else:
+            return {
+                'average_time': 0.0,
+                'min_time': 0.0,
+                'max_time': 0.0,
+                'successful_runs': 0,
+                'total_runs': iterations,
+                'success_rate': 0.0
+            }
     
     def parse_timestamp(self, timestamp_str: Optional[str]) -> Optional[datetime]:
         """日時文字列を標準形式に変換
