@@ -331,34 +331,52 @@ class XiaomiVideoEXIFEnhancer:
             最適なタイムスタンプ文字列、見つからない場合はNone
         """
         timestamp_candidates = []
+        fallback_candidates = []  # 信頼度が低いが形式が合致するもの
         
         for (bbox, text, conf) in ocr_results:
             if self.debug:
                 print(f"OCR result: '{text}' (confidence: {conf:.3f})")
             
-            # 信頼度フィルタリング
-            if conf >= self.confidence_threshold:
-                # 複数パターンでマッチを試行
-                for pattern in TIMESTAMP_PATTERNS:
-                    if re.search(pattern, text):
+            # 複数パターンでマッチを試行
+            pattern_matched = False
+            for pattern in TIMESTAMP_PATTERNS:
+                if re.search(pattern, text):
+                    if conf >= self.confidence_threshold:
                         timestamp_candidates.append((text, conf, bbox))
                         if self.debug:
                             print(f"Timestamp candidate: '{text}' (confidence: {conf:.3f})")
-                        break  # マッチしたら他のパターンは試行しない
+                    else:
+                        # 信頼度が低いがパターンマッチするものをフォールバック候補に
+                        fallback_candidates.append((text, conf, bbox))
+                        if self.debug:
+                            print(f"Fallback timestamp candidate: '{text}' (confidence: {conf:.3f})")
+                    pattern_matched = True
+                    break
         
-        if not timestamp_candidates:
+        # 通常の候補がある場合
+        if timestamp_candidates:
+            best_candidate = max(timestamp_candidates, key=lambda x: x[1])
+            best_text, best_conf, best_bbox = best_candidate
             if self.debug:
-                print(f"No valid timestamp found above confidence threshold {self.confidence_threshold}")
-            return None
+                print(f"Best timestamp: '{best_text}' (confidence: {best_conf:.3f})")
+            return best_text
         
-        # 最も信頼度の高いタイムスタンプを選択
-        best_candidate = max(timestamp_candidates, key=lambda x: x[1])
-        best_text, best_conf, best_bbox = best_candidate
+        # フォールバック候補を検討（信頼度0.3以上）
+        if fallback_candidates:
+            valid_fallbacks = [(text, conf, bbox) for text, conf, bbox in fallback_candidates if conf >= 0.3]
+            if valid_fallbacks:
+                best_fallback = max(valid_fallbacks, key=lambda x: x[1])
+                best_text, best_conf, best_bbox = best_fallback
+                if self.debug:
+                    print(f"Using fallback timestamp: '{best_text}' (confidence: {best_conf:.3f})")
+                return best_text
         
         if self.debug:
-            print(f"Best timestamp: '{best_text}' (confidence: {best_conf:.3f})")
+            print(f"No valid timestamp found above confidence threshold {self.confidence_threshold}")
+            if fallback_candidates:
+                print(f"Fallback candidates available but confidence too low")
         
-        return best_text
+        return None
     
     def extract_timestamp_with_details(self, cropped_frame: np.ndarray) -> Dict[str, Any]:
         """詳細情報付きでタイムスタンプを抽出
