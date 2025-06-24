@@ -138,9 +138,36 @@ class XiaomiVideoEXIFEnhancer:
             
             if self.debug:
                 print(f"Frame extracted successfully, shape: {frame.shape}")
+                print(f"Frame dtype: {frame.dtype}, min: {frame.min()}, max: {frame.max()}")
+            
+            # フレーム形式の確認とバリデーション
+            if len(frame.shape) != 3 or frame.shape[2] != 3:
+                raise ValueError(f"Invalid frame format: expected 3-channel color image, got shape {frame.shape}")
+            
             return frame
         finally:
             cap.release()
+    
+    def save_debug_frame(self, frame: np.ndarray, filename: str = "debug_frame.jpg") -> bool:
+        """デバッグ用にフレームを保存
+        
+        Args:
+            frame: 保存するフレーム
+            filename: 保存ファイル名
+            
+        Returns:
+            保存成功時True
+        """
+        try:
+            import cv2
+            success = cv2.imwrite(filename, frame)
+            if self.debug and success:
+                print(f"Debug frame saved as: {filename}")
+            return success
+        except Exception as e:
+            if self.debug:
+                print(f"Failed to save debug frame: {e}")
+            return False
     
     def crop_timestamp_area(self, frame: np.ndarray) -> np.ndarray:
         """左上の日時領域をクロップ
@@ -150,11 +177,25 @@ class XiaomiVideoEXIFEnhancer:
             
         Returns:
             クロップされた画像
+            
+        Raises:
+            ValueError: 無効なフレーム形式の場合
         """
+        if len(frame.shape) != 3:
+            raise ValueError(f"Invalid frame format: expected 3D array, got shape {frame.shape}")
+        
         height, width = frame.shape[:2]
         crop_height = height // 4
         crop_width = width // 4
+        
+        if self.debug:
+            print(f"Cropping timestamp area: {width}x{height} -> {crop_width}x{crop_height}")
+        
         cropped = frame[0:crop_height, 0:crop_width]
+        
+        if self.debug:
+            print(f"Cropped area shape: {cropped.shape}")
+        
         return cropped
     
     def extract_timestamp(self, cropped_frame: np.ndarray) -> Optional[str]:
