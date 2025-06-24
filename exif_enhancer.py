@@ -169,27 +169,31 @@ class XiaomiVideoEXIFEnhancer:
                 print(f"Failed to save debug frame: {e}")
             return False
     
-    def crop_timestamp_area(self, frame: np.ndarray) -> np.ndarray:
+    def crop_timestamp_area(self, frame: np.ndarray, crop_ratio: float = 0.25) -> np.ndarray:
         """左上の日時領域をクロップ
         
         Args:
             frame: 入力フレーム
+            crop_ratio: クロップ比率（0.1-1.0、デフォルト0.25）
             
         Returns:
             クロップされた画像
             
         Raises:
-            ValueError: 無効なフレーム形式の場合
+            ValueError: 無効なフレーム形式または比率の場合
         """
         if len(frame.shape) != 3:
             raise ValueError(f"Invalid frame format: expected 3D array, got shape {frame.shape}")
         
+        if not 0.1 <= crop_ratio <= 1.0:
+            raise ValueError(f"Invalid crop_ratio: {crop_ratio}, must be between 0.1 and 1.0")
+        
         height, width = frame.shape[:2]
-        crop_height = height // 4
-        crop_width = width // 4
+        crop_height = int(height * crop_ratio)
+        crop_width = int(width * crop_ratio)
         
         if self.debug:
-            print(f"Cropping timestamp area: {width}x{height} -> {crop_width}x{crop_height}")
+            print(f"Cropping timestamp area: {width}x{height} -> {crop_width}x{crop_height} (ratio: {crop_ratio})")
         
         cropped = frame[0:crop_height, 0:crop_width]
         
@@ -197,6 +201,62 @@ class XiaomiVideoEXIFEnhancer:
             print(f"Cropped area shape: {cropped.shape}")
         
         return cropped
+    
+    def save_cropped_area(self, cropped_frame: np.ndarray, filename: str = "cropped_timestamp.jpg") -> bool:
+        """クロップした日時領域を保存
+        
+        Args:
+            cropped_frame: クロップされたフレーム
+            filename: 保存ファイル名
+            
+        Returns:
+            保存成功時True
+        """
+        try:
+            import cv2
+            success = cv2.imwrite(filename, cropped_frame)
+            if self.debug and success:
+                print(f"Cropped timestamp area saved as: {filename}")
+            return success
+        except Exception as e:
+            if self.debug:
+                print(f"Failed to save cropped area: {e}")
+            return False
+    
+    def get_optimal_crop_ratio(self, frame: np.ndarray) -> float:
+        """映像解像度に基づいて最適なクロップ比率を決定
+        
+        Args:
+            frame: 入力フレーム
+            
+        Returns:
+            最適なクロップ比率
+        """
+        height, width = frame.shape[:2]
+        
+        # 解像度に基づく適応的クロップ比率
+        if width <= 640:  # SD quality
+            return 0.3
+        elif width <= 1280:  # HD quality
+            return 0.25
+        elif width <= 1920:  # Full HD
+            return 0.2
+        else:  # 4K and above
+            return 0.15
+    
+    def crop_timestamp_area_adaptive(self, frame: np.ndarray) -> np.ndarray:
+        """解像度に応じて適応的に日時領域をクロップ
+        
+        Args:
+            frame: 入力フレーム
+            
+        Returns:
+            クロップされた画像
+        """
+        optimal_ratio = self.get_optimal_crop_ratio(frame)
+        if self.debug:
+            print(f"Using adaptive crop ratio: {optimal_ratio}")
+        return self.crop_timestamp_area(frame, optimal_ratio)
     
     def extract_timestamp(self, cropped_frame: np.ndarray) -> Optional[str]:
         """OCRで日時文字列を抽出
