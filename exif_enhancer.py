@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 import re
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 import numpy as np
 
 
@@ -38,6 +38,68 @@ class XiaomiVideoEXIFEnhancer:
                 print(f"Failed to initialize EasyOCR reader: {e}")
             raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
     
+    def get_video_info(self, video_path: str) -> Dict[str, Any]:
+        """映像ファイルの基本情報を取得
+        
+        Args:
+            video_path: 映像ファイルのパス
+            
+        Returns:
+            映像の基本情報（フレーム数、FPS、解像度など）
+            
+        Raises:
+            ValueError: 映像の読み込みに失敗した場合
+        """
+        if self.debug:
+            print(f"Getting video info for: {video_path}")
+        
+        cap = cv2.VideoCapture(video_path)
+        
+        try:
+            if not cap.isOpened():
+                raise ValueError(f"Cannot open video file: {video_path}")
+            
+            # 基本的な映像情報を取得
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+            
+            # FourCCをテキストに変換
+            fourcc_str = "".join([chr((fourcc >> 8 * i) & 0xFF) for i in range(4)])
+            
+            video_info = {
+                'frame_count': frame_count,
+                'fps': fps,
+                'width': width,
+                'height': height,
+                'resolution': f"{width}x{height}",
+                'fourcc': fourcc_str,
+                'duration_seconds': frame_count / fps if fps > 0 else 0,
+                'file_size_bytes': os.path.getsize(video_path) if os.path.exists(video_path) else 0
+            }
+            
+            if self.debug:
+                print(f"Video info: {video_info}")
+            
+            return video_info
+        finally:
+            cap.release()
+    
+    def is_supported_format(self, video_path: str) -> bool:
+        """サポートされている映像形式かどうかを確認
+        
+        Args:
+            video_path: 映像ファイルのパス
+            
+        Returns:
+            サポートされている場合True
+        """
+        supported_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm'}
+        file_extension = Path(video_path).suffix.lower()
+        return file_extension in supported_extensions
+    
     def extract_first_frame(self, video_path: str) -> np.ndarray:
         """映像の1フレーム目を抽出
         
@@ -49,17 +111,30 @@ class XiaomiVideoEXIFEnhancer:
             
         Raises:
             ValueError: 映像の読み込みに失敗した場合
+            FileNotFoundError: ファイルが存在しない場合
         """
         if self.debug:
             print(f"Extracting first frame from: {video_path}")
+        
+        # ファイルの存在確認
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(f"Video file not found: {video_path}")
+        
+        # サポートされた形式かどうか確認
+        if not self.is_supported_format(video_path):
+            raise ValueError(f"Unsupported video format: {video_path}")
+        
         cap = cv2.VideoCapture(video_path)
         
         try:
+            if not cap.isOpened():
+                raise ValueError(f"Cannot open video file: {video_path}")
+            
             ret, frame = cap.read()
-            if not ret:
+            if not ret or frame is None:
                 if self.debug:
-                    print(f"Failed to read video: {video_path}")
-                raise ValueError(f"Failed to read video: {video_path}")
+                    print(f"Failed to read first frame from: {video_path}")
+                raise ValueError(f"Failed to read first frame from: {video_path}")
             
             if self.debug:
                 print(f"Frame extracted successfully, shape: {frame.shape}")
