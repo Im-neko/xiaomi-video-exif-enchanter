@@ -636,18 +636,37 @@ class XiaomiVideoEXIFEnhancer:
             if self.debug:
                 print("Running FFmpeg with metadata embedding...")
             
-            (
-                ffmpeg
-                .input(video_path)
-                .output(output_path, **{'metadata': metadata})
-                .overwrite_output()
-                .run(quiet=not self.debug)
-            )
+            # メタデータを正しい形式で構築
+            print(f"Metadata to embed: {metadata}")
             
-            if self.debug:
-                print("✓ FFmpeg processing completed successfully")
+            try:
+                # subprocessを使用してFFmpegを直接実行
+                import subprocess
                 
-                # 埋め込み結果の検証
+                cmd = ['ffmpeg', '-i', video_path, '-vcodec', 'copy', '-acodec', 'copy']
+                
+                # メタデータパラメータを追加
+                for key, value in metadata.items():
+                    cmd.extend(['-metadata', f'{key}={value}'])
+                
+                cmd.extend(['-y', output_path])
+                
+                print(f"FFmpeg command: {' '.join(cmd)}")
+                
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    raise Exception(f"FFmpeg failed with return code {result.returncode}: {result.stderr}")
+                
+                if self.debug:
+                    print("✓ FFmpeg processing completed successfully")
+                    
+            except Exception as stream_error:
+                print(f"FFmpeg execution error: {stream_error}")
+                raise
+            
+            # 埋め込み結果の検証
+            if self.debug:
                 try:
                     result_probe = ffmpeg.probe(output_path)
                     result_metadata = result_probe.get('format', {}).get('tags', {})
