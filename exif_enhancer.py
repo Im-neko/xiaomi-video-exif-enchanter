@@ -10,7 +10,7 @@ import easyocr
 import piexif
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import re
 import time
 from pathlib import Path
@@ -530,10 +530,12 @@ class XiaomiVideoEXIFEnhancer:
             if match:
                 year, month, day, hour, minute, second = match.groups()
                 try:
+                    # JST (UTC+9) として作成
+                    jst = timezone(timedelta(hours=9))
                     dt = datetime(int(year), int(month), int(day), 
-                                int(hour), int(minute), int(second))
+                                int(hour), int(minute), int(second), tzinfo=jst)
                     if self.debug:
-                        print(f"Timestamp parsed successfully: {dt}")
+                        print(f"Timestamp parsed successfully (JST): {dt}")
                     return dt
                 except ValueError as e:
                     if self.debug:
@@ -570,7 +572,13 @@ class XiaomiVideoEXIFEnhancer:
             print(f"Adding EXIF data to: {video_path}")
             print(f"Output path: {output_path}")
             if timestamp:
-                print(f"Timestamp: {timestamp} -> {timestamp.isoformat() + 'Z'}")
+                if timestamp.tzinfo is None:
+                    jst = timezone(timedelta(hours=9))
+                    timestamp_with_tz = timestamp.replace(tzinfo=jst)
+                else:
+                    timestamp_with_tz = timestamp
+                utc_time = timestamp_with_tz.astimezone(timezone.utc)
+                print(f"Timestamp: {timestamp} (JST) -> {utc_time.isoformat()} (UTC)")
             if location:
                 print(f"Location: {location}")
         
@@ -579,8 +587,15 @@ class XiaomiVideoEXIFEnhancer:
         
         # Issue #9: 作成日時のEXIF情報への埋め込み
         if timestamp:
-            # ISO 8601形式でのタイムスタンプ設定
-            creation_time = timestamp.isoformat() + 'Z'
+            # JST から UTC に変換してISO 8601形式で設定
+            if timestamp.tzinfo is None:
+                # ナイーブなdatetimeの場合はJSTとして扱う
+                jst = timezone(timedelta(hours=9))
+                timestamp = timestamp.replace(tzinfo=jst)
+            
+            # UTC に変換
+            utc_timestamp = timestamp.astimezone(timezone.utc)
+            creation_time = utc_timestamp.isoformat()
             metadata['creation_time'] = creation_time
             
             # 互換性のため複数のタイムスタンプフィールドを設定
