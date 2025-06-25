@@ -546,7 +546,7 @@ class XiaomiVideoEXIFEnhancer:
     
     def add_exif_data(self, video_path: str, output_path: str, 
                      timestamp: Optional[datetime], location: Optional[str] = None) -> bool:
-        """EXIF情報を追加して映像を出力
+        """EXIF情報を追加して映像を出力（Issue #9対応強化版）
         
         Args:
             video_path: 入力映像ファイルのパス
@@ -560,29 +560,124 @@ class XiaomiVideoEXIFEnhancer:
         try:
             import ffmpeg
         except ImportError:
-            print("Error: ffmpeg-python is not installed")
+            error_msg = "Error: ffmpeg-python is not installed"
+            print(error_msg)
+            if self.debug:
+                print("Install with: pip install ffmpeg-python")
             return False
         
-        metadata = {}
-        if timestamp:
-            metadata['creation_time'] = timestamp.isoformat() + 'Z'
-        if location:
-            metadata['location'] = location
+        if self.debug:
+            print(f"Adding EXIF data to: {video_path}")
+            print(f"Output path: {output_path}")
+            if timestamp:
+                print(f"Timestamp: {timestamp} -> {timestamp.isoformat() + 'Z'}")
+            if location:
+                print(f"Location: {location}")
         
+        # メタデータ辞書の構築
+        metadata = {}
+        
+        # Issue #9: 作成日時のEXIF情報への埋め込み
+        if timestamp:
+            # ISO 8601形式でのタイムスタンプ設定
+            creation_time = timestamp.isoformat() + 'Z'
+            metadata['creation_time'] = creation_time
+            
+            # 互換性のため複数のタイムスタンプフィールドを設定
+            metadata['date'] = creation_time
+            
+            if self.debug:
+                print(f"Set creation_time metadata: {creation_time}")
+        
+        # Issue #10: 撮影場所のEXIF情報への埋め込み
+        if location:
+            # UTF-8エンコーディングの確保
+            try:
+                encoded_location = location.encode('utf-8').decode('utf-8')
+                metadata['location'] = encoded_location
+                
+                # 場所情報の追加フィールド
+                metadata['comment'] = f"撮影場所: {encoded_location}"
+                
+                if self.debug:
+                    print(f"Set location metadata: {encoded_location}")
+                    
+            except UnicodeEncodeError:
+                print(f"Warning: Failed to encode location '{location}' as UTF-8")
+                metadata['location'] = "Unknown Location"
+        
+        # ツール情報の追加
+        metadata['encoder'] = 'Xiaomi Video EXIF Enhancer'
+        
+        if self.debug:
+            print(f"Final metadata to embed: {metadata}")
+        
+        # 既存メタデータの保持チェック
         try:
+            # 既存のメタデータを取得して保持
+            probe = ffmpeg.probe(video_path)
+            existing_metadata = probe.get('format', {}).get('tags', {})
+            
+            if existing_metadata and self.debug:
+                print(f"Found existing metadata: {existing_metadata}")
+                # 既存のメタデータを保持（新規データで上書きしない）
+                for key, value in existing_metadata.items():
+                    if key.lower() not in [k.lower() for k in metadata.keys()]:
+                        metadata[key] = value
+                        if self.debug:
+                            print(f"Preserved existing metadata: {key}={value}")
+                            
+        except Exception as e:
+            if self.debug:
+                print(f"Could not read existing metadata: {e}")
+        
+        # メタデータ埋め込みの実行
+        try:
+            if self.debug:
+                print("Running FFmpeg with metadata embedding...")
+            
             (
                 ffmpeg
                 .input(video_path)
                 .output(output_path, **{'metadata': metadata})
                 .overwrite_output()
-                .run(quiet=True)
+                .run(quiet=not self.debug)
             )
+            
+            if self.debug:
+                print("✓ FFmpeg processing completed successfully")
+                
+                # 埋め込み結果の検証
+                try:
+                    result_probe = ffmpeg.probe(output_path)
+                    result_metadata = result_probe.get('format', {}).get('tags', {})
+                    
+                    print(f"Embedded metadata verification:")
+                    for key, value in metadata.items():
+                        if key.lower() in [k.lower() for k in result_metadata.keys()]:
+                            print(f"  ✓ {key}: {value}")
+                        else:
+                            print(f"  ⚠ {key}: {value} (not found in output)")
+                            
+                except Exception as verify_error:
+                    print(f"Could not verify embedded metadata: {verify_error}")
+            
             return True
+            
         except ffmpeg.Error as e:
-            print(f"FFmpeg error: {e}")
+            error_msg = f"FFmpeg error during metadata embedding: {e}"
+            print(error_msg)
+            if self.debug:
+                print("FFmpeg stderr:")
+                if hasattr(e, 'stderr') and e.stderr:
+                    print(e.stderr.decode('utf-8', errors='replace'))
             return False
         except Exception as e:
-            print(f"Unexpected error during video processing: {e}")
+            error_msg = f"Unexpected error during video processing: {e}"
+            print(error_msg)
+            if self.debug:
+                import traceback
+                traceback.print_exc()
             return False
     
     def process_video(self, input_path: str, output_path: str, 
