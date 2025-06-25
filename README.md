@@ -65,6 +65,30 @@ pip install -e .[dev]
 - numpy>=1.24.0
 - Pillow>=10.0.0
 
+### Docker使用（推奨・最も簡単）
+環境構築が不要で、すぐに使い始められます：
+
+```bash
+# 1. プロジェクトをクローン
+git clone https://github.com/your-username/xiaomi-video-exif-enhancer.git
+cd xiaomi-video-exif-enchancer
+
+# 2. 入力・出力ディレクトリを作成
+mkdir -p input output
+
+# 3. サンプル動画をテスト
+docker-compose run --rm xiaomi-exif-enhancer sample.mp4 --location "Docker Test" --debug
+
+# 4. 自分の動画を処理（inputディレクトリに動画ファイルを配置）
+cp /path/to/your/video.mp4 input/
+docker-compose run --rm xiaomi-exif-enhancer /app/input/video.mp4 --location "リビング"
+
+# 5. バッチ処理
+docker-compose run --rm xiaomi-exif-enhancer --batch /app/input --output-dir /app/output --location "バッチ処理"
+```
+
+詳細なDocker使用方法は [DOCKER.md](DOCKER.md) を参照してください。
+
 ## サンプル動画
 
 プロジェクトには `sample.mp4` というサンプル動画が含まれています。このファイルを使用してツールの動作を確認できます。
@@ -97,7 +121,7 @@ python exif_enhancer.py sample.mp4 --location "テストルーム"
 # ✓ Timestamp parsed successfully: 2025-05-28 19:41:14
 ```
 
-### 基本的な使用方法
+### 単一ファイル処理
 ```bash
 # 基本的な処理（自動で出力ファイル名を生成）
 python exif_enhancer.py input.mp4
@@ -115,11 +139,40 @@ python exif_enhancer.py input.mp4 --location "寝室" --output bedroom_video.mp4
 python exif_enhancer.py input.mp4 --debug
 ```
 
+### バッチ処理（ディレクトリ一括処理）
+```bash
+# ディレクトリ内のすべてのMP4ファイルを処理
+python exif_enhancer.py --batch /path/to/videos/
+
+# 撮影場所を指定してバッチ処理
+python exif_enhancer.py --batch /path/to/videos/ --location "リビング"
+
+# 出力ディレクトリを指定してバッチ処理
+python exif_enhancer.py --batch /path/to/videos/ --output-dir /path/to/output/
+
+# エラー時に処理を停止（デフォルトはスキップして継続）
+python exif_enhancer.py --batch /path/to/videos/ --no-skip-errors
+
+# 特定の拡張子のみ処理
+python exif_enhancer.py --batch /path/to/videos/ --extensions mp4 avi mov
+
+# バッチ処理のデバッグモード
+python exif_enhancer.py --batch /path/to/videos/ --location "寝室" --debug
+```
+
 ### オプション
-- `input`: 入力映像ファイルパス（必須）
-- `-o, --output`: 出力映像ファイルパス（省略時は自動生成）
+
+#### 基本オプション
+- `input`: 入力映像ファイルパス（単一ファイル処理時）
+- `--batch DIR`: 入力ディレクトリパス（バッチ処理時）
+- `-o, --output`: 出力映像ファイルパス（単一）または出力ディレクトリ（バッチ）
+- `--output-dir`: バッチ処理専用の出力ディレクトリ
 - `-l, --location`: 撮影場所（EXIF情報に追加）
 - `--debug`: デバッグモード（詳細ログ出力）
+
+#### バッチ処理専用オプション
+- `--no-skip-errors`: 最初のエラーで処理停止（デフォルト：エラーをスキップして継続）
+- `--extensions`: 処理対象の拡張子指定（デフォルト：mp4 MP4）
 
 ### 対応動画形式
 - MP4, AVI, MOV, MKV, WebM, FLV, WMV
@@ -132,6 +185,14 @@ python exif_enhancer.py input.mp4 --debug
 3. ✓ Timestamp detected - OCRで日時を検出
 4. ✓ Timestamp parsed - 日時をパース
 5. ✓ Video processed successfully - 映像処理完了
+
+### バッチ処理の特徴
+- **一括処理**: ディレクトリ内の複数動画ファイルを自動検出・処理
+- **進捗表示**: `[1/5] Processing: video.mp4` 形式で進捗を表示
+- **エラー耐性**: 個別ファイルのエラーで全体を停止させない（オプションで変更可能）
+- **重複回避**: 既存の出力ファイルを自動検出してスキップ
+- **統計情報**: 処理完了後に成功・失敗・スキップ数のサマリーを表示
+- **柔軟な出力**: 入力ディレクトリ内または指定した別ディレクトリに出力可能
 
 ## 開発・テスト
 

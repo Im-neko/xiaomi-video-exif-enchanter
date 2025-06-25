@@ -680,6 +680,177 @@ class XiaomiVideoEXIFEnhancer:
                 traceback.print_exc()
             return False
     
+    def process_batch(self, input_directory: str, output_directory: Optional[str] = None,
+                     location: Optional[str] = None, skip_errors: bool = True) -> Dict[str, Any]:
+        """ディレクトリ内のすべてのMP4ファイルをバッチ処理
+        
+        Args:
+            input_directory: 入力ディレクトリのパス
+            output_directory: 出力ディレクトリのパス（Noneの場合は入力ディレクトリと同じ）
+            location: 設定する場所情報
+            skip_errors: エラーが発生したファイルをスキップするかどうか
+            
+        Returns:
+            処理結果の辞書（成功数、失敗数、処理されたファイル一覧など）
+        """
+        from pathlib import Path
+        import glob
+        
+        if self.debug:
+            print(f"Starting batch processing in directory: {input_directory}")
+        
+        # 入力ディレクトリの検証
+        if not os.path.exists(input_directory):
+            raise ValueError(f"Input directory not found: {input_directory}")
+        
+        if not os.path.isdir(input_directory):
+            raise ValueError(f"Input path is not a directory: {input_directory}")
+        
+        # 出力ディレクトリの設定
+        if output_directory is None:
+            output_directory = input_directory
+        
+        # 出力ディレクトリの作成
+        os.makedirs(output_directory, exist_ok=True)
+        
+        # MP4ファイルを検索
+        video_extensions = ['*.mp4', '*.MP4', '*.avi', '*.AVI', '*.mov', '*.MOV', 
+                           '*.mkv', '*.MKV', '*.webm', '*.WEBM']
+        video_files = []
+        
+        for extension in video_extensions:
+            pattern = os.path.join(input_directory, extension)
+            video_files.extend(glob.glob(pattern))
+        
+        if not video_files:
+            print(f"No video files found in directory: {input_directory}")
+            return {
+                'total_files': 0,
+                'successful': 0,
+                'failed': 0,
+                'processed_files': [],
+                'failed_files': [],
+                'skipped_files': []
+            }
+        
+        if self.debug:
+            print(f"Found {len(video_files)} video files")
+        
+        # 出力パス生成器を初期化
+        try:
+            from output_path_generator import OutputPathGenerator
+            path_generator = OutputPathGenerator(debug=self.debug)
+        except ImportError:
+            path_generator = None
+            if self.debug:
+                print("OutputPathGenerator not available, using simple naming")
+        
+        # 処理結果を格納する辞書
+        results = {
+            'total_files': len(video_files),
+            'successful': 0,
+            'failed': 0,
+            'processed_files': [],
+            'failed_files': [],
+            'skipped_files': []
+        }
+        
+        # 各ファイルを処理
+        for i, input_file in enumerate(video_files, 1):
+            file_name = os.path.basename(input_file)
+            print(f"\n[{i}/{len(video_files)}] Processing: {file_name}")
+            
+            try:
+                # 出力ファイルパスを生成
+                if path_generator:
+                    if output_directory == input_directory:
+                        output_file = path_generator.generate_output_path(input_file)
+                    else:
+                        base_name = Path(input_file).stem
+                        output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
+                else:
+                    # 簡単な命名方式
+                    base_name = Path(input_file).stem
+                    if output_directory == input_directory:
+                        output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
+                    else:
+                        output_file = os.path.join(output_directory, f"{base_name}.mp4")
+                
+                # 既存ファイルのスキップチェック
+                if os.path.exists(output_file):
+                    print(f"  ⚠ Output file already exists, skipping: {os.path.basename(output_file)}")
+                    results['skipped_files'].append({
+                        'input': input_file,
+                        'output': output_file,
+                        'reason': 'Output file already exists'
+                    })
+                    continue
+                
+                # ファイルを処理
+                success = self.process_video(input_file, output_file, location)
+                
+                if success:
+                    results['successful'] += 1
+                    results['processed_files'].append({
+                        'input': input_file,
+                        'output': output_file,
+                        'status': 'success'
+                    })
+                    print(f"  ✅ Success: {os.path.basename(output_file)}")
+                else:
+                    results['failed'] += 1
+                    results['failed_files'].append({
+                        'input': input_file,
+                        'output': output_file,
+                        'error': 'Processing failed'
+                    })
+                    print(f"  ❌ Failed: {file_name}")
+                    
+                    if not skip_errors:
+                        print(f"Stopping batch processing due to error in: {file_name}")
+                        break
+                        
+            except Exception as e:
+                results['failed'] += 1
+                results['failed_files'].append({
+                    'input': input_file,
+                    'output': '',
+                    'error': str(e)
+                })
+                print(f"  ❌ Error processing {file_name}: {e}")
+                
+                if not skip_errors:
+                    print(f"Stopping batch processing due to error in: {file_name}")
+                    break
+        
+        # 処理結果のサマリー
+        print(f"\n{'='*60}")
+        print(f"BATCH PROCESSING SUMMARY")
+        print(f"{'='*60}")
+        print(f"Total files found: {results['total_files']}")
+        print(f"Successfully processed: {results['successful']}")
+        print(f"Failed: {results['failed']}")
+        print(f"Skipped: {len(results['skipped_files'])}")
+        
+        if results['successful'] > 0:
+            print(f"\n✅ Successfully processed files:")
+            for item in results['processed_files']:
+                print(f"  {os.path.basename(item['input'])} → {os.path.basename(item['output'])}")
+        
+        if results['failed_files']:
+            print(f"\n❌ Failed files:")
+            for item in results['failed_files']:
+                print(f"  {os.path.basename(item['input'])}: {item['error']}")
+        
+        if results['skipped_files']:
+            print(f"\n⚠ Skipped files:")
+            for item in results['skipped_files']:
+                print(f"  {os.path.basename(item['input'])}: {item['reason']}")
+        
+        print(f"{'='*60}")
+        
+        return results
+    
     def process_video(self, input_path: str, output_path: str, 
                      location: Optional[str] = None) -> bool:
         """メイン処理
@@ -788,69 +959,150 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s input.mp4
-  %(prog)s input.mp4 --location "リビング"
-  %(prog)s input.mp4 --output enhanced.mp4 --location "寝室"
+  Single file processing:
+    %(prog)s input.mp4
+    %(prog)s input.mp4 --location "リビング"
+    %(prog)s input.mp4 --output enhanced.mp4 --location "寝室"
+  
+  Batch processing:
+    %(prog)s --batch /path/to/videos/
+    %(prog)s --batch /path/to/videos/ --output-dir /path/to/output/
+    %(prog)s --batch /path/to/videos/ --location "リビング" --no-skip-errors
         """
     )
     
-    parser.add_argument('input', help='Input video file path')
-    parser.add_argument('-o', '--output', help='Output video file path')
+    # 入力方式の選択
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('input', nargs='?', help='Input video file path (for single file processing)')
+    group.add_argument('--batch', metavar='DIR', help='Input directory path (for batch processing)')
+    
+    # 出力オプション
+    parser.add_argument('-o', '--output', help='Output video file path (single file) or output directory (batch)')
+    parser.add_argument('--output-dir', help='Output directory for batch processing (alternative to --output)')
+    
+    # 処理オプション
     parser.add_argument('-l', '--location', help='Location to add to EXIF')
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
     
+    # バッチ処理専用オプション
+    parser.add_argument('--no-skip-errors', action='store_true', 
+                       help='Stop batch processing on first error (default: skip errors and continue)')
+    parser.add_argument('--extensions', nargs='*', default=['mp4', 'MP4'], 
+                       help='Video file extensions to process in batch mode (default: mp4 MP4)')
+    
     args = parser.parse_args()
-    
-    # 入力ファイルの妥当性チェック
-    if not validate_video_file(args.input):
-        if not os.path.exists(args.input):
-            print(f"Error: Input file not found: {args.input}")
-        elif os.path.getsize(args.input) == 0:
-            print(f"Error: Input file is empty: {args.input}")
-        else:
-            print(f"Error: Invalid video file format: {args.input}")
-        sys.exit(1)
-    
-    # 出力パス生成器を初期化
-    path_generator = OutputPathGenerator(debug=args.debug)
-    
-    # 出力パスの設定・生成
-    if not args.output:
-        try:
-            args.output = path_generator.generate_output_path(args.input)
-            if args.debug:
-                print(f"Auto-generated output path: {args.output}")
-        except Exception as e:
-            print(f"Error: Failed to generate output path: {e}")
-            sys.exit(1)
-    
-    # 出力パスの妥当性チェック
-    is_valid, issues = path_generator.validate_output_path(args.output)
-    if not is_valid:
-        print("Error: Output path validation failed:")
-        for issue in issues:
-            print(f"  - {issue}")
-        
-        # 代替パスの提案
-        alternatives = path_generator.suggest_alternative_paths(args.input, count=3)
-        if alternatives:
-            print("\n💡 Suggested alternative paths:")
-            for i, alt in enumerate(alternatives, 1):
-                print(f"  {i}. {alt}")
-        sys.exit(1)
-    
-    # デバッグ情報の出力
-    if args.debug:
-        print(f"Input file: {args.input}")
-        print(f"Output file: {args.output}")
-        print(f"Location: {args.location or 'Not specified'}")
-        print(f"File size: {os.path.getsize(args.input)} bytes")
     
     try:
         # 処理実行
         enhancer = XiaomiVideoEXIFEnhancer(debug=args.debug)
-        success = enhancer.process_video(args.input, args.output, args.location)
-        sys.exit(0 if success else 1)
+        
+        if args.batch:
+            # バッチ処理モード
+            print(f"Starting batch processing mode")
+            print(f"Input directory: {args.batch}")
+            
+            # 出力ディレクトリの決定
+            output_dir = args.output_dir or args.output
+            if output_dir:
+                print(f"Output directory: {output_dir}")
+            else:
+                print(f"Output directory: {args.batch} (same as input)")
+            
+            # バッチ処理設定
+            skip_errors = not args.no_skip_errors
+            if args.debug:
+                print(f"Skip errors: {skip_errors}")
+                print(f"Extensions: {args.extensions}")
+                print(f"Location: {args.location or 'Not specified'}")
+            
+            # バッチ処理を実行
+            results = enhancer.process_batch(
+                input_directory=args.batch,
+                output_directory=output_dir,
+                location=args.location,
+                skip_errors=skip_errors
+            )
+            
+            # 結果に基づいて終了コードを決定
+            if results['total_files'] == 0:
+                print("No video files found to process")
+                sys.exit(1)
+            elif results['failed'] > 0 and not skip_errors:
+                sys.exit(1)
+            elif results['successful'] == 0:
+                print("No files were successfully processed")
+                sys.exit(1)
+            else:
+                sys.exit(0)
+                
+        else:
+            # シングルファイル処理モード
+            if not args.input:
+                print("Error: Input file path is required for single file processing")
+                parser.print_help()
+                sys.exit(1)
+            
+            # 入力ファイルの妥当性チェック
+            if not validate_video_file(args.input):
+                if not os.path.exists(args.input):
+                    print(f"Error: Input file not found: {args.input}")
+                elif os.path.getsize(args.input) == 0:
+                    print(f"Error: Input file is empty: {args.input}")
+                else:
+                    print(f"Error: Invalid video file format: {args.input}")
+                sys.exit(1)
+            
+            # 出力パス生成器を初期化
+            try:
+                from output_path_generator import OutputPathGenerator
+                path_generator = OutputPathGenerator(debug=args.debug)
+                
+                # 出力パスの設定・生成
+                if not args.output:
+                    try:
+                        args.output = path_generator.generate_output_path(args.input)
+                        if args.debug:
+                            print(f"Auto-generated output path: {args.output}")
+                    except Exception as e:
+                        print(f"Error: Failed to generate output path: {e}")
+                        sys.exit(1)
+                
+                # 出力パスの妥当性チェック
+                is_valid, issues = path_generator.validate_output_path(args.output)
+                if not is_valid:
+                    print("Error: Output path validation failed:")
+                    for issue in issues:
+                        print(f"  - {issue}")
+                    
+                    # 代替パスの提案
+                    alternatives = path_generator.suggest_alternative_paths(args.input, count=3)
+                    if alternatives:
+                        print("\n💡 Suggested alternative paths:")
+                        for i, alt in enumerate(alternatives, 1):
+                            print(f"  {i}. {alt}")
+                    sys.exit(1)
+                    
+            except ImportError:
+                # OutputPathGeneratorが利用できない場合
+                if not args.output:
+                    from pathlib import Path
+                    base_name = Path(args.input).stem
+                    args.output = f"{base_name}_enhanced.mp4"
+                    if args.debug:
+                        print(f"Simple auto-generated output path: {args.output}")
+            
+            # デバッグ情報の出力
+            if args.debug:
+                print(f"Single file processing mode")
+                print(f"Input file: {args.input}")
+                print(f"Output file: {args.output}")
+                print(f"Location: {args.location or 'Not specified'}")
+                print(f"File size: {os.path.getsize(args.input)} bytes")
+            
+            # シングルファイル処理を実行
+            success = enhancer.process_video(args.input, args.output, args.location)
+            sys.exit(0 if success else 1)
+            
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
         sys.exit(1)

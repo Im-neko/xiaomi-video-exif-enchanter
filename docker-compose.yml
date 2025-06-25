@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  xiaomi-exif-enhancer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: xiaomi-video-exif-enhancer:latest
+    container_name: xiaomi-exif-enhancer
+    
+    # ボリュームマッピング（ホストのディレクトリをコンテナにマウント）
+    volumes:
+      # 入力ディレクトリ：動画ファイルを置く場所
+      - ./input:/app/input:ro  # 読み取り専用
+      # 出力ディレクトリ：処理済みファイルが保存される場所
+      - ./output:/app/output:rw  # 読み書き可能
+      # サンプル動画のマウント（存在する場合）
+      - ./sample.mp4:/app/sample.mp4:ro
+    
+    # 環境変数
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Tokyo
+    
+    # ネットワーク設定（必要に応じて）
+    networks:
+      - xiaomi-network
+    
+    # リソース制限（必要に応じて調整）
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    
+    # 再起動ポリシー
+    restart: unless-stopped
+    
+    # ヘルスチェック
+    healthcheck:
+      test: ["CMD", "python", "-c", "from exif_enhancer import XiaomiVideoEXIFEnhancer; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# 単一ファイル処理用のサービス（オプション）
+  xiaomi-single:
+    extends: xiaomi-exif-enhancer
+    container_name: xiaomi-single-processor
+    profiles: ["single"]
+    command: ["sample.mp4", "--location", "Dockerテスト", "--debug"]
+
+# バッチ処理用のサービス（オプション）
+  xiaomi-batch:
+    extends: xiaomi-exif-enhancer
+    container_name: xiaomi-batch-processor
+    profiles: ["batch"]
+    command: ["--batch", "/app/input", "--location", "Dockerバッチ処理", "--debug"]
+
+# ネットワーク定義
+networks:
+  xiaomi-network:
+    driver: bridge
+
+# ボリューム定義（永続化が必要な場合）
+volumes:
+  input-data:
+    driver: local
+  output-data:
+    driver: local

@@ -1,0 +1,109 @@
+# Git関連
+.git
+.gitignore
+.gitattributes
+
+# Python関連
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# テスト・カバレッジ
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# 環境設定
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE関連
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ログファイル
+*.log
+logs/
+
+# 一時ファイル
+tmp/
+temp/
+*.tmp
+*.temp
+
+# テスト用動画ファイル（大容量なのでビルドから除外）
+test_videos/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.m4v
+
+# ただし、sample.mp4は含める
+!sample.mp4
+
+# 出力ディレクトリ
+output/
+input/
+
+# Docker関連
+.dockerignore
+Dockerfile.*
+docker-compose.override.yml
+
+# ドキュメント（不要な場合）
+docs/
+*.md
+!README.md
+
+# その他の不要ファイル
+.pytest_cache
+.mypy_cache
+.bandit
+.pre-commit-config.yaml
