@@ -16,6 +16,9 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+import multiprocessing
+from functools import lru_cache
 from video_error_handler import VideoErrorHandler, VideoErrorType
 from output_path_generator import OutputPathGenerator
 
@@ -36,18 +39,84 @@ DEFAULT_CROP_RATIO = 0.25
 SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm'}
 
 
+class EasyOCRSingleton:
+    """EasyOCRのシングルトンクラス - 初期化オーバーヘッドを削減"""
+    _instances = {}
+    _lock = multiprocessing.Lock()
+    
+    @classmethod
+    def get_reader(cls, languages: List[str] = None, gpu: bool = None, debug: bool = False) -> easyocr.Reader:
+        """EasyOCRリーダーのシングルトンインスタンスを取得
+        
+        Args:
+            languages: OCR言語リスト
+            gpu: GPU使用フラグ（自動検出）
+            debug: デバッグモード
+            
+        Returns:
+            EasyOCRリーダーインスタンス
+        """
+        if languages is None:
+            languages = ['en', 'ja']
+        
+        # GPU利用可能性の自動検出
+        if gpu is None:
+            try:
+                import torch
+                gpu = torch.cuda.is_available()
+                if debug and gpu:
+                    print("CUDA GPU detected, enabling GPU acceleration for OCR")
+            except ImportError:
+                gpu = False
+        
+        # インスタンスキーの生成
+        key = (tuple(sorted(languages)), gpu)
+        
+        with cls._lock:
+            if key not in cls._instances:
+                if debug:
+                    print(f"Creating new EasyOCR reader instance: languages={languages}, gpu={gpu}")
+                
+                start_time = time.time()
+                try:
+                    reader = easyocr.Reader(languages, gpu=gpu)
+                    init_time = time.time() - start_time
+                    
+                    if debug:
+                        print(f"EasyOCR reader initialized in {init_time:.2f} seconds")
+                    
+                    cls._instances[key] = reader
+                except Exception as e:
+                    if debug:
+                        print(f"Failed to initialize EasyOCR reader: {e}")
+                    raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
+            else:
+                if debug:
+                    print("Reusing existing EasyOCR reader instance")
+        
+        return cls._instances[key]
+    
+    @classmethod
+    def clear_cache(cls):
+        """キャッシュされたリーダーインスタンスをクリア"""
+        with cls._lock:
+            cls._instances.clear()
+
+
 class XiaomiVideoEXIFEnhancer:
     """Xiaomiホームカメラ映像のEXIF情報を拡張するクラス"""
     
-    def __init__(self, debug: bool = False, languages: List[str] = None) -> None:
+    def __init__(self, debug: bool = False, languages: List[str] = None, use_gpu: bool = None) -> None:
         """初期化処理
         
         Args:
             debug: デバッグモードの有効/無効
             languages: OCRで使用する言語リスト（デフォルト: ['en', 'ja']）
+            use_gpu: GPU使用フラグ（自動検出）
         """
         self.debug = debug
         self.languages = languages or ['en', 'ja']
+        self.use_gpu = use_gpu
         self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
         
         # 映像エラーハンドラーを初期化
@@ -56,20 +125,8 @@ class XiaomiVideoEXIFEnhancer:
         # 出力パス生成器を初期化
         self.path_generator = OutputPathGenerator(debug=debug)
         
-        try:
-            if debug:
-                print(f"Initializing EasyOCR reader with languages: {self.languages}")
-            
-            start_time = time.time()
-            self.reader = easyocr.Reader(self.languages)
-            init_time = time.time() - start_time
-            
-            if debug:
-                print(f"EasyOCR reader initialized successfully in {init_time:.2f} seconds")
-        except Exception as e:
-            if debug:
-                print(f"Failed to initialize EasyOCR reader: {e}")
-            raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
+        # EasyOCRリーダーはシングルトンで取得（初期化オーバーヘッド削減）
+        self.reader = EasyOCRSingleton.get_reader(self.languages, self.use_gpu, debug)
     
     def set_confidence_threshold(self, threshold: float) -> None:
         """OCR信頼度閾値を設定
@@ -809,14 +866,17 @@ class XiaomiVideoEXIFEnhancer:
             return False
     
     def process_batch(self, input_directory: str, output_directory: Optional[str] = None,
-                     location: Optional[str] = None, skip_errors: bool = True) -> Dict[str, Any]:
-        """ディレクトリ内のすべてのMP4ファイルをバッチ処理
+                     location: Optional[str] = None, skip_errors: bool = True, 
+                     max_workers: Optional[int] = None, use_threading: bool = False) -> Dict[str, Any]:
+        """ディレクトリ内のすべてのMP4ファイルをバッチ処理（並列処理対応）
         
         Args:
             input_directory: 入力ディレクトリのパス
             output_directory: 出力ディレクトリのパス（Noneの場合は入力ディレクトリと同じ）
             location: 設定する場所情報
             skip_errors: エラーが発生したファイルをスキップするかどうか
+            max_workers: 並列処理の最大ワーカー数（Noneの場合は自動設定）
+            use_threading: スレッドプールを使用するか（Falseの場合はプロセスプール）
             
         Returns:
             処理結果の辞書（成功数、失敗数、処理されたファイル一覧など）
@@ -864,6 +924,20 @@ class XiaomiVideoEXIFEnhancer:
         if self.debug:
             print(f"Found {len(video_files)} video files")
         
+        # 並列処理の設定
+        if max_workers is None:
+            # CPUコア数に基づいて自動設定（I/Oバウンドなので多めに設定）
+            max_workers = min(len(video_files), multiprocessing.cpu_count() * 2)
+        
+        # 少数ファイルの場合は並列処理を無効化
+        enable_parallel = len(video_files) > 2 and max_workers > 1
+        
+        if self.debug:
+            print(f"Parallel processing: {'Enabled' if enable_parallel else 'Disabled'}")
+            if enable_parallel:
+                print(f"Max workers: {max_workers}")
+                print(f"Executor type: {'ThreadPoolExecutor' if use_threading else 'ProcessPoolExecutor'}")
+        
         # 出力パス生成器を初期化
         try:
             from output_path_generator import OutputPathGenerator
@@ -883,6 +957,22 @@ class XiaomiVideoEXIFEnhancer:
             'skipped_files': []
         }
         
+        # 並列処理または逐次処理の選択
+        if enable_parallel:
+            return self._process_batch_parallel(
+                video_files, output_directory, location, skip_errors, 
+                max_workers, use_threading, path_generator, results
+            )
+        else:
+            return self._process_batch_sequential(
+                video_files, output_directory, location, skip_errors, 
+                path_generator, results
+            )
+    
+    def _process_batch_sequential(self, video_files: List[str], output_directory: str, 
+                                 location: Optional[str], skip_errors: bool,
+                                 path_generator, results: Dict[str, Any]) -> Dict[str, Any]:
+        """逐次バッチ処理"""
         # 各ファイルを処理
         for i, input_file in enumerate(video_files, 1):
             file_name = os.path.basename(input_file)
@@ -890,8 +980,9 @@ class XiaomiVideoEXIFEnhancer:
             
             try:
                 # 出力ファイルパスを生成
+                input_dir = os.path.dirname(input_file)
                 if path_generator:
-                    if output_directory == input_directory:
+                    if output_directory == input_dir:
                         output_file = path_generator.generate_output_path(input_file)
                     else:
                         base_name = Path(input_file).stem
@@ -899,7 +990,7 @@ class XiaomiVideoEXIFEnhancer:
                 else:
                     # 簡単な命名方式
                     base_name = Path(input_file).stem
-                    if output_directory == input_directory:
+                    if output_directory == input_dir:
                         output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
                     else:
                         output_file = os.path.join(output_directory, f"{base_name}.mp4")
@@ -988,6 +1079,153 @@ class XiaomiVideoEXIFEnhancer:
         print(f"{'='*60}")
         
         return results
+    
+    def _process_batch_parallel(self, video_files: List[str], output_directory: str,
+                               location: Optional[str], skip_errors: bool,
+                               max_workers: int, use_threading: bool,
+                               path_generator, results: Dict[str, Any]) -> Dict[str, Any]:
+        """並列バッチ処理"""
+        if self.debug:
+            print(f"Starting parallel batch processing with {max_workers} workers")
+        
+        # 実行器の選択
+        executor_class = ThreadPoolExecutor if use_threading else ProcessPoolExecutor
+        
+        with executor_class(max_workers=max_workers) as executor:
+            # 処理タスクを作成
+            future_to_file = {}
+            
+            for input_file in video_files:
+                # 出力ファイルパスを生成
+                try:
+                    if path_generator:
+                        if output_directory == os.path.dirname(input_file):
+                            output_file = path_generator.generate_output_path(input_file)
+                        else:
+                            base_name = Path(input_file).stem
+                            output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
+                    else:
+                        base_name = Path(input_file).stem
+                        if output_directory == os.path.dirname(input_file):
+                            output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
+                        else:
+                            output_file = os.path.join(output_directory, f"{base_name}.mp4")
+                    
+                    # 既存ファイルのスキップチェック
+                    if os.path.exists(output_file):
+                        results['skipped_files'].append({
+                            'input': input_file,
+                            'output': output_file,
+                            'reason': 'Output file already exists'
+                        })
+                        continue
+                    
+                    # 並列処理タスクを投入
+                    if use_threading:
+                        # スレッドプール: 同一プロセス内でのOCRリーダー共有
+                        future = executor.submit(self._process_single_file_thread_safe, 
+                                                input_file, output_file, location)
+                    else:
+                        # プロセスプール: 各プロセスで独立したリーダー初期化
+                        future = executor.submit(process_single_video_worker, 
+                                                input_file, output_file, location, 
+                                                self.languages, self.use_gpu, self.debug)
+                    
+                    future_to_file[future] = (input_file, output_file)
+                    
+                except Exception as e:
+                    results['failed'] += 1
+                    results['failed_files'].append({
+                        'input': input_file,
+                        'output': '',
+                        'error': f'Path generation error: {str(e)}'
+                    })
+            
+            # 結果を収集
+            completed = 0
+            total_tasks = len(future_to_file)
+            
+            for future in as_completed(future_to_file):
+                input_file, output_file = future_to_file[future]
+                file_name = os.path.basename(input_file)
+                completed += 1
+                
+                try:
+                    success = future.result()
+                    
+                    if success:
+                        results['successful'] += 1
+                        results['processed_files'].append({
+                            'input': input_file,
+                            'output': output_file,
+                            'status': 'success'
+                        })
+                        print(f"[{completed}/{total_tasks}] ✅ Success: {file_name}")
+                    else:
+                        results['failed'] += 1
+                        results['failed_files'].append({
+                            'input': input_file,
+                            'output': output_file,
+                            'error': 'Processing failed - moved to failed folder'
+                        })
+                        print(f"[{completed}/{total_tasks}] ❌ Failed: {file_name}")
+                        
+                        if not skip_errors:
+                            # 残りのタスクをキャンセル
+                            for remaining_future in future_to_file:
+                                if not remaining_future.done():
+                                    remaining_future.cancel()
+                            break
+                            
+                except Exception as e:
+                    results['failed'] += 1
+                    results['failed_files'].append({
+                        'input': input_file,
+                        'output': output_file,
+                        'error': str(e)
+                    })
+                    print(f"[{completed}/{total_tasks}] ❌ Error: {file_name} - {e}")
+                    
+                    if not skip_errors:
+                        break
+        
+        # 処理結果のサマリー（既存のコードと同じ）
+        print(f"\n{'='*60}")
+        print(f"PARALLEL BATCH PROCESSING SUMMARY")
+        print(f"{'='*60}")
+        print(f"Total files found: {results['total_files']}")
+        print(f"Successfully processed: {results['successful']}")
+        print(f"Failed: {results['failed']}")
+        print(f"Skipped: {len(results['skipped_files'])}")
+        
+        if results['successful'] > 0:
+            print(f"\n✅ Successfully processed files:")
+            for item in results['processed_files']:
+                print(f"  {os.path.basename(item['input'])} → {os.path.basename(item['output'])}")
+        
+        if results['failed_files']:
+            print(f"\n❌ Failed files:")
+            for item in results['failed_files']:
+                print(f"  {os.path.basename(item['input'])}: {item['error']}")
+        
+        if results['skipped_files']:
+            print(f"\n⚠ Skipped files:")
+            for item in results['skipped_files']:
+                print(f"  {os.path.basename(item['input'])}: {item['reason']}")
+        
+        print(f"{'='*60}")
+        
+        return results
+    
+    def _process_single_file_thread_safe(self, input_path: str, output_path: str, 
+                                        location: Optional[str] = None) -> bool:
+        """スレッドセーフな単一ファイル処理（OCRリーダー共有）"""
+        try:
+            return self.process_video(input_path, output_path, location)
+        except Exception as e:
+            if self.debug:
+                print(f"Thread processing error for {input_path}: {e}")
+            return False
     
     def _move_to_failed_folder(self, input_path: str, reason: str = "Unknown error", output_dir: Optional[str] = None) -> None:
         """ファイルを失敗フォルダに移動
@@ -1100,6 +1338,31 @@ class XiaomiVideoEXIFEnhancer:
             return False
 
 
+def process_single_video_worker(input_path: str, output_path: str, location: Optional[str],
+                               languages: List[str], use_gpu: bool, debug: bool) -> bool:
+    """並列処理用のワーカー関数（プロセスプール用）
+    
+    Args:
+        input_path: 入力映像ファイルのパス
+        output_path: 出力映像ファイルのパス
+        location: 設定する場所情報
+        languages: OCR言語リスト
+        use_gpu: GPU使用フラグ
+        debug: デバッグモード
+        
+    Returns:
+        処理成功時True
+    """
+    try:
+        # 各ワーカープロセスで独立したEnhancerインスタンスを作成
+        enhancer = XiaomiVideoEXIFEnhancer(debug=debug, languages=languages, use_gpu=use_gpu)
+        return enhancer.process_video(input_path, output_path, location)
+    except Exception as e:
+        if debug:
+            print(f"Worker process error for {input_path}: {e}")
+        return False
+
+
 def validate_video_file(file_path: str) -> bool:
     """動画ファイルの妥当性チェック
     
@@ -1187,11 +1450,21 @@ Examples:
     parser.add_argument('--extensions', nargs='*', default=['mp4', 'MP4'], 
                        help='Video file extensions to process in batch mode (default: mp4 MP4)')
     
+    # 並列処理オプション
+    parser.add_argument('--max-workers', type=int, 
+                       help='Maximum number of parallel workers (default: auto-detect)')
+    parser.add_argument('--disable-parallel', action='store_true',
+                       help='Disable parallel processing (force sequential)')
+    parser.add_argument('--use-threading', action='store_true',
+                       help='Use threading instead of multiprocessing for parallel execution')
+    parser.add_argument('--gpu', action='store_true',
+                       help='Enable GPU acceleration for OCR (requires CUDA)')
+    
     args = parser.parse_args()
     
     try:
         # 処理実行
-        enhancer = XiaomiVideoEXIFEnhancer(debug=args.debug)
+        enhancer = XiaomiVideoEXIFEnhancer(debug=args.debug, use_gpu=args.gpu)
         
         if args.batch:
             # バッチ処理モード
@@ -1207,17 +1480,28 @@ Examples:
             
             # バッチ処理設定
             skip_errors = not args.no_skip_errors
+            max_workers = None if args.disable_parallel else args.max_workers
+            use_threading = args.use_threading
+            
             if args.debug:
                 print(f"Skip errors: {skip_errors}")
                 print(f"Extensions: {args.extensions}")
                 print(f"Location: {args.location or 'Not specified'}")
+                if not args.disable_parallel:
+                    print(f"Parallel processing: Enabled")
+                    print(f"Max workers: {max_workers or 'Auto-detect'}")
+                    print(f"Executor type: {'Threading' if use_threading else 'Multiprocessing'}")
+                else:
+                    print(f"Parallel processing: Disabled")
             
             # バッチ処理を実行
             results = enhancer.process_batch(
                 input_directory=args.batch,
                 output_directory=output_dir,
                 location=args.location,
-                skip_errors=skip_errors
+                skip_errors=skip_errors,
+                max_workers=max_workers,
+                use_threading=use_threading
             )
             
             # 結果に基づいて終了コードを決定
