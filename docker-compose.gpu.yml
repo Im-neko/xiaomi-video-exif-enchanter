@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  xiaomi-video-exif-enhancer:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: xiaomi-video-exif-enhancer:gpu
+    container_name: xiaomi-video-exif-enhancer-gpu
+    
+    # GPU設定
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # または runtime設定（古いDocker Composeバージョン用）
+    # runtime: nvidia
+    
+    # 環境変数
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+    
+    # ボリュームマウント
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+    
+    # 作業ディレクトリ
+    working_dir: /app
+    
+    # ネットワーク設定（必要に応じて）
+    networks:
+      - xiaomi-enhancer-network
+
+networks:
+  xiaomi-enhancer-network:
+    driver: bridge
