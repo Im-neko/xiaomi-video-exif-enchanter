@@ -246,12 +246,13 @@ class XiaomiVideoEXIFEnhancer:
                 print(f"Failed to save debug frame: {e}")
             return False
     
-    def crop_timestamp_area(self, frame: np.ndarray, crop_ratio: Optional[float] = None) -> np.ndarray:
-        """左上の日時領域をクロップ（適応的または固定比率）
+    def crop_timestamp_area(self, frame: np.ndarray, crop_ratio: Optional[float] = None, use_fixed_position: bool = False) -> np.ndarray:
+        """左上の日時領域をクロップ（固定位置優先または適応的比率）
         
         Args:
             frame: 入力フレーム
             crop_ratio: クロップ比率（0.1-1.0、Noneの場合は適応的に決定）
+            use_fixed_position: 固定位置クロップを使用するかどうか
             
         Returns:
             クロップされた画像
@@ -262,28 +263,87 @@ class XiaomiVideoEXIFEnhancer:
         if len(frame.shape) != 3:
             raise ValueError(f"Invalid frame format: expected 3D array, got shape {frame.shape}")
         
-        # 適応的クロップ比率の決定
-        if crop_ratio is None:
-            crop_ratio = self.get_optimal_crop_ratio(frame)
-            if self.debug:
-                print(f"Using adaptive crop ratio: {crop_ratio}")
-        
-        if not 0.1 <= crop_ratio <= 1.0:
-            raise ValueError(f"Invalid crop_ratio: {crop_ratio}, must be between 0.1 and 1.0")
-        
         height, width = frame.shape[:2]
-        crop_height = int(height * crop_ratio)
-        crop_width = int(width * crop_ratio)
         
-        if self.debug:
-            print(f"Cropping timestamp area: {width}x{height} -> {crop_width}x{crop_height} (ratio: {crop_ratio})")
-        
-        cropped = frame[0:crop_height, 0:crop_width]
+        if use_fixed_position:
+            # 固定位置でのクロップ（Xiaomi C301 カメラ用）
+            crop_coords = self.get_fixed_timestamp_coordinates(frame)
+            x1, y1, x2, y2 = crop_coords
+            
+            if self.debug:
+                print(f"Using fixed position crop: {width}x{height} -> coordinates({x1},{y1},{x2},{y2})")
+            
+            cropped = frame[y1:y2, x1:x2]
+        else:
+            # 既存の適応的クロップ
+            if crop_ratio is None:
+                crop_ratio = 0.25  # 従来のデフォルト値で後方互換性を保持
+                if self.debug:
+                    print(f"Using default crop ratio: {crop_ratio}")
+            
+            if not 0.1 <= crop_ratio <= 1.0:
+                raise ValueError(f"Invalid crop_ratio: {crop_ratio}, must be between 0.1 and 1.0")
+            
+            crop_height = int(height * crop_ratio)
+            crop_width = int(width * crop_ratio)
+            
+            if self.debug:
+                print(f"Cropping timestamp area: {width}x{height} -> {crop_width}x{crop_height} (ratio: {crop_ratio})")
+            
+            cropped = frame[0:crop_height, 0:crop_width]
         
         if self.debug:
             print(f"Cropped area shape: {cropped.shape}")
         
         return cropped
+    
+    def crop_timestamp_area_adaptive(self, frame: np.ndarray) -> np.ndarray:
+        """適応的クロップ（解像度に基づく最適化）
+        
+        Args:
+            frame: 入力フレーム
+            
+        Returns:
+            クロップされた画像
+        """
+        optimal_ratio = self.get_optimal_crop_ratio(frame)
+        return self.crop_timestamp_area(frame, crop_ratio=optimal_ratio, use_fixed_position=False)
+    
+    def crop_timestamp_area_fixed(self, frame: np.ndarray) -> np.ndarray:
+        """固定位置クロップ（精度向上版）
+        
+        Args:
+            frame: 入力フレーム
+            
+        Returns:
+            クロップされた画像
+        """
+        return self.crop_timestamp_area(frame, use_fixed_position=True)
+    
+    def crop_timestamp_area_smart(self, frame: np.ndarray) -> np.ndarray:
+        """スマートクロップ（固定位置と適応的の組み合わせ）
+        
+        Args:
+            frame: 入力フレーム
+            
+        Returns:
+            クロップされた画像
+        """
+        # まず固定位置でクロップを試行
+        cropped_fixed = self.crop_timestamp_area(frame, use_fixed_position=True)
+        
+        # 固定位置クロップでOCRを実行
+        timestamp_fixed = self.extract_timestamp(cropped_fixed)
+        
+        if timestamp_fixed and len(timestamp_fixed) > 10:  # 有効なタイムスタンプが検出された
+            if self.debug:
+                print(f"Fixed position cropping successful: {timestamp_fixed}")
+            return cropped_fixed
+        else:
+            # 固定位置で失敗した場合、適応的クロップにフォールバック
+            if self.debug:
+                print("Fixed position cropping failed, falling back to adaptive cropping")
+            return self.crop_timestamp_area_adaptive(frame)
     
     def save_cropped_area(self, cropped_frame: np.ndarray, filename: str = "cropped_timestamp.jpg") -> bool:
         """クロップした日時領域を保存
@@ -305,6 +365,40 @@ class XiaomiVideoEXIFEnhancer:
             if self.debug:
                 print(f"Failed to save cropped area: {e}")
             return False
+    
+    def get_fixed_timestamp_coordinates(self, frame: np.ndarray) -> tuple:
+        """Xiaomi C301カメラのタイムスタンプ固定位置座標を取得
+        
+        Args:
+            frame: 入力フレーム
+            
+        Returns:
+            タイムスタンプ領域の座標 (x1, y1, x2, y2)
+        """
+        height, width = frame.shape[:2]
+        
+        # Xiaomi C301 カメラのタイムスタンプ位置（解像度別）
+        if width <= 640:  # SD quality (640x360, 640x480)
+            # タイムスタンプ領域をより広く設定（高さも十分に確保）
+            x1, y1 = 5, 5
+            x2, y2 = min(280, width), min(50, height)
+        elif width <= 1280:  # HD quality (1280x720)
+            x1, y1 = 10, 10
+            x2, y2 = min(420, width), min(70, height)
+        elif width <= 1920:  # Full HD (1920x1080)
+            x1, y1 = 15, 15
+            x2, y2 = min(520, width), min(85, height)
+        else:  # 4K and above
+            x1, y1 = 25, 25
+            x2, y2 = min(700, width), min(110, height)
+        
+        # フレーム境界内に収まるように調整
+        x1 = max(0, min(x1, width - 50))
+        y1 = max(0, min(y1, height - 25))
+        x2 = max(x1 + 50, min(x2, width))
+        y2 = max(y1 + 25, min(y2, height))
+        
+        return (x1, y1, x2, y2)
     
     def get_optimal_crop_ratio(self, frame: np.ndarray) -> float:
         """映像解像度に基づいて最適なクロップ比率を決定
@@ -836,9 +930,12 @@ class XiaomiVideoEXIFEnhancer:
                     results['failed_files'].append({
                         'input': input_file,
                         'output': output_file,
-                        'error': 'Processing failed'
+                        'error': 'Processing failed - moved to failed folder'
                     })
                     print(f"  ❌ Failed: {file_name}")
+                    
+                    # 失敗したファイルは既に failed フォルダに移動されているため、
+                    # outputディレクトリには作成されない
                     
                     if not skip_errors:
                         print(f"Stopping batch processing due to error in: {file_name}")
@@ -852,6 +949,13 @@ class XiaomiVideoEXIFEnhancer:
                     'error': str(e)
                 })
                 print(f"  ❌ Error processing {file_name}: {e}")
+                
+                # バッチ処理での例外も失敗フォルダに移動
+                try:
+                    self._move_to_failed_folder(input_file, f"Batch processing error: {str(e)}", output_directory)
+                except Exception as move_error:
+                    if self.debug:
+                        print(f"Could not move failed file in batch processing: {move_error}")
                 
                 if not skip_errors:
                     print(f"Stopping batch processing due to error in: {file_name}")
@@ -884,6 +988,55 @@ class XiaomiVideoEXIFEnhancer:
         print(f"{'='*60}")
         
         return results
+    
+    def _move_to_failed_folder(self, input_path: str, reason: str = "Unknown error", output_dir: Optional[str] = None) -> None:
+        """ファイルを失敗フォルダに移動
+        
+        Args:
+            input_path: 移動するファイルのパス
+            reason: 失敗理由
+            output_dir: 出力ディレクトリ（指定されない場合は入力ファイルと同じディレクトリを使用）
+        """
+        try:
+            import shutil
+            
+            # 失敗フォルダのパスを生成
+            if output_dir and os.path.exists(output_dir):
+                # 出力ディレクトリが指定されている場合はそこにfailedフォルダを作成
+                failed_dir = os.path.join(output_dir, "failed")
+            else:
+                # 出力ディレクトリが指定されていない場合は入力ファイルと同じディレクトリ
+                input_dir = os.path.dirname(input_path)
+                failed_dir = os.path.join(input_dir, "failed")
+            
+            # 失敗フォルダが存在しない場合は作成
+            os.makedirs(failed_dir, exist_ok=True)
+            
+            # ファイル名を取得
+            filename = os.path.basename(input_path)
+            failed_path = os.path.join(failed_dir, filename)
+            
+            # 同名ファイルが既にある場合は番号を付ける
+            counter = 1
+            base_name, ext = os.path.splitext(filename)
+            while os.path.exists(failed_path):
+                failed_path = os.path.join(failed_dir, f"{base_name}_{counter}{ext}")
+                counter += 1
+            
+            # ファイルを移動
+            shutil.move(input_path, failed_path)
+            
+            if self.debug:
+                print(f"Moved failed file to: {failed_path}")
+                print(f"Reason: {reason}")
+            else:
+                print(f"❌ Moved to failed folder: {filename} (Reason: {reason})")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"Failed to move file to failed folder: {e}")
+            else:
+                print(f"⚠ Could not move file to failed folder: {e}")
     
     def process_video(self, input_path: str, output_path: str, 
                      location: Optional[str] = None) -> bool:
@@ -921,6 +1074,10 @@ class XiaomiVideoEXIFEnhancer:
                 print(f"✓ Timestamp parsed: {timestamp}")
             else:
                 print("⚠ Failed to parse timestamp")
+                # 完全なタイムスタンプが得られない場合は失敗として処理
+                output_dir = os.path.dirname(output_path) if output_path else None
+                self._move_to_failed_folder(input_path, "Incomplete timestamp information", output_dir)
+                return False
             
             # EXIF情報を追加して出力
             success = self.add_exif_data(input_path, output_path, timestamp, location)
@@ -929,11 +1086,17 @@ class XiaomiVideoEXIFEnhancer:
                 print(f"✓ Video processed successfully: {output_path}")
             else:
                 print("✗ Failed to process video")
+                # EXIF処理に失敗した場合も失敗フォルダに移動
+                output_dir = os.path.dirname(output_path) if output_path else None
+                self._move_to_failed_folder(input_path, "EXIF processing failed", output_dir)
             
             return success
             
         except Exception as e:
             print(f"✗ Error during video processing: {e}")
+            # 例外が発生した場合も失敗フォルダに移動
+            output_dir = os.path.dirname(output_path) if output_path else None
+            self._move_to_failed_folder(input_path, f"Processing error: {str(e)}", output_dir)
             return False
 
 
