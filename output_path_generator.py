@@ -53,7 +53,7 @@ class OutputPathGenerator:
         
         Args:
             input_path: 入力ファイルのパス
-            output_dir: 出力ディレクトリ（指定しない場合は入力ファイルと同じディレクトリ）
+            output_dir: 出力ディレクトリ（指定しない場合は入力ファイルと同じディレクトリ、Dockerコンテナ内では/app/output）
             suffix: ファイル名に追加するサフィックス（デフォルト: _enhanced）
             preserve_timestamp: 既存ファイルがある場合にタイムスタンプを追加するか
             
@@ -78,7 +78,13 @@ class OutputPathGenerator:
         
         # 出力ディレクトリの決定
         if output_dir is None:
-            output_dir = str(input_path_obj.parent)
+            # Dockerコンテナ内の場合は/app/outputをデフォルトとする
+            if self._is_docker_container() and str(input_path_obj.parent) == '/app/input':
+                output_dir = '/app/output'
+                if self.debug:
+                    self.logger.debug("Docker container detected: using /app/output as default output directory")
+            else:
+                output_dir = str(input_path_obj.parent)
         
         # 出力ディレクトリの検証と作成
         self._ensure_output_directory(output_dir)
@@ -321,6 +327,34 @@ class OutputPathGenerator:
                 pass
         
         return alternatives[:count]
+    
+    def _is_docker_container(self) -> bool:
+        """Dockerコンテナ内で実行されているかどうかを判定
+        
+        Returns:
+            Dockerコンテナ内で実行されている場合True
+        """
+        try:
+            # /.dockerenvファイルの存在チェック（最も一般的な方法）
+            if os.path.exists('/.dockerenv'):
+                return True
+            
+            # /proc/1/cgroupでcontainerが含まれているかチェック
+            if os.path.exists('/proc/1/cgroup'):
+                with open('/proc/1/cgroup', 'r') as f:
+                    return 'docker' in f.read() or 'containerd' in f.read()
+            
+            # 環境変数による判定
+            if os.environ.get('DOCKER_CONTAINER') == '1':
+                return True
+            
+            # /app/inputと/app/outputディレクトリの存在チェック（このプロジェクト専用）
+            if os.path.exists('/app/input') and os.path.exists('/app/output'):
+                return True
+            
+            return False
+        except Exception:
+            return False
 
 
 if __name__ == '__main__':
