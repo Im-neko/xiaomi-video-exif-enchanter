@@ -40,12 +40,22 @@ sudo systemctl restart docker
 ## 使用方法
 
 ### 1. GPU対応イメージのビルド
+
+#### 一般的なGPU（RTX 30/40シリーズなど）
 ```bash
 # GPU対応Dockerイメージをビルド
 docker build -f Dockerfile.gpu -t xiaomi-video-exif-enhancer:gpu .
 ```
 
+#### RTX 50シリーズ（RTX 5070 Ti等）専用
+```bash
+# RTX 50シリーズ専用イメージをビルド
+docker build -f Dockerfile.rtx50 -t xiaomi-video-exif-enhancer:rtx50 .
+```
+
 ### 2. Docker Compose での実行
+
+#### 一般的なGPU
 ```bash
 # GPU対応版で実行
 docker-compose -f docker-compose.gpu.yml up --build
@@ -53,6 +63,16 @@ docker-compose -f docker-compose.gpu.yml up --build
 # バッチ処理（GPU使用）
 docker-compose -f docker-compose.gpu.yml run --rm xiaomi-video-exif-enhancer \
   --batch /app/input --gpu --max-workers 2
+```
+
+#### RTX 50シリーズ（安定動作優先）
+```bash
+# RTX 50シリーズ専用版で実行（CPUモード）
+docker-compose -f docker-compose.rtx50.yml up --build
+
+# バッチ処理（CPUモードで安定動作）
+docker-compose -f docker-compose.rtx50.yml run --rm xiaomi-video-exif-enhancer \
+  --batch /app/input --max-workers 2
 ```
 
 ### 3. 直接 docker run での実行
@@ -81,7 +101,36 @@ time docker run --gpus all -v $(pwd)/input:/app/input -v $(pwd)/output:/app/outp
 
 ## トラブルシューティング
 
-### 1. GPU が認識されない場合
+### 1. RTX 50シリーズ（RTX 5070 Ti等）のCUDA互換性エラー
+
+#### 問題
+```
+NVIDIA GeForce RTX 5070 Ti with CUDA capability sm_120 is not compatible with the current PyTorch installation.
+Fatal error: Failed to initialize EasyOCR reader: CUDA error: no kernel image is available for execution on the device
+```
+
+#### 解決策1: RTX 50専用イメージを使用（推奨）
+```bash
+# RTX 50シリーズ専用イメージで安定動作
+docker-compose -f docker-compose.rtx50.yml run --rm xiaomi-video-exif-enhancer \
+  --batch /app/input --debug
+```
+
+#### 解決策2: 環境変数でCPUモード強制
+```bash
+# 既存のイメージでCPUモード強制
+docker run --gpus all -e FORCE_CPU_MODE=1 \
+  -v ./input:/app/input -v ./output:/app/output \
+  xiaomi-video-exif-enhancer:gpu --batch /app/input --debug
+```
+
+#### 解決策3: PyTorch Nightlyビルド使用
+```bash
+# 最新の開発版PyTorchでビルド
+docker build -f Dockerfile.gpu -t xiaomi-video-exif-enhancer:gpu-nightly .
+```
+
+### 2. GPU が認識されない場合
 ```bash
 # コンテナ内でGPU確認
 docker run --gpus all --rm xiaomi-video-exif-enhancer:gpu python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"

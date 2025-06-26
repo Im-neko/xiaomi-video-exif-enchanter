@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  xiaomi-video-exif-enhancer:
+    build:
+      context: .
+      dockerfile: Dockerfile.rtx50
+    image: xiaomi-video-exif-enhancer:rtx50
+    container_name: xiaomi-video-exif-enhancer-rtx50
+    
+    # GPU設定（RTX 50シリーズ用）
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # RTX 50シリーズ用環境変数
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONUNBUFFERED=1
+      - CUDA_LAUNCH_BLOCKING=1
+      - TORCH_USE_CUDA_DSA=1
+      # CPUモード強制（互換性問題回避）
+      - FORCE_CPU_MODE=1
+    
+    # ボリュームマウント
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+    
+    # 作業ディレクトリ
+    working_dir: /app
+    
+    # ネットワーク設定
+    networks:
+      - xiaomi-enhancer-network
+
+networks:
+  xiaomi-enhancer-network:
+    driver: bridge

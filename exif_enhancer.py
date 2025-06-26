@@ -59,13 +59,35 @@ class EasyOCRSingleton:
         if languages is None:
             languages = ['en', 'ja']
         
-        # GPU利用可能性の自動検出
-        if gpu is None:
+        # 環境変数でのCPUモード強制チェック
+        force_cpu = os.environ.get('FORCE_CPU_MODE', '').lower() in ('1', 'true', 'yes')
+        if force_cpu:
+            gpu = False
+            if debug:
+                print("GPU mode disabled by FORCE_CPU_MODE environment variable")
+        
+        # GPU利用可能性の自動検出とRTX 50シリーズ互換性チェック
+        elif gpu is None:
             try:
                 import torch
                 gpu = torch.cuda.is_available()
+                
+                # RTX 50シリーズの互換性チェック
+                if gpu and torch.cuda.is_available():
+                    device_name = torch.cuda.get_device_name(0)
+                    capability = torch.cuda.get_device_capability(0)
+                    
+                    # CUDA capability sm_120 (RTX 50シリーズ) の場合は警告
+                    if capability[0] >= 12 or "RTX 50" in device_name or "RTX 5070" in device_name:
+                        if debug:
+                            print(f"⚠️ Detected {device_name} with CUDA capability sm_{capability[0]}{capability[1]}")
+                            print("RTX 50シリーズはPyTorch安定版で未サポートのため、CPUフォールバックを推奨")
+                        gpu = False  # 安全のためCPUモードに強制
+                
                 if debug and gpu:
                     print("CUDA GPU detected, enabling GPU acceleration for OCR")
+                elif debug:
+                    print("Using CPU mode for EasyOCR (GPU disabled or incompatible)")
             except ImportError:
                 gpu = False
         
@@ -88,8 +110,29 @@ class EasyOCRSingleton:
                     cls._instances[key] = reader
                 except Exception as e:
                     if debug:
-                        print(f"Failed to initialize EasyOCR reader: {e}")
-                    raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
+                        print(f"Failed to initialize EasyOCR reader with GPU={gpu}: {e}")
+                    
+                    # GPU初期化に失敗した場合、CPUフォールバックを試行
+                    if gpu:
+                        if debug:
+                            print("Falling back to CPU mode...")
+                        try:
+                            reader = easyocr.Reader(languages, gpu=False)
+                            init_time = time.time() - start_time
+                            
+                            if debug:
+                                print(f"EasyOCR reader initialized in CPU mode in {init_time:.2f} seconds")
+                            
+                            # CPUモードでキャッシュ
+                            cpu_key = (tuple(sorted(languages)), False)
+                            cls._instances[cpu_key] = reader
+                            return reader
+                        except Exception as cpu_error:
+                            if debug:
+                                print(f"CPU fallback also failed: {cpu_error}")
+                            raise RuntimeError(f"Failed to initialize EasyOCR reader: GPU error: {e}, CPU error: {cpu_error}")
+                    else:
+                        raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
             else:
                 if debug:
                     print("Reusing existing EasyOCR reader instance")

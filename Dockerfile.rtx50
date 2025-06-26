@@ -1,15 +1,18 @@
-# Xiaomi Video EXIF Enhancer Docker Image (GPU-Ready)
+# Xiaomi Video EXIF Enhancer Docker Image (RTX 50シリーズ専用)
 FROM python:3.11-slim
 
 # メタデータの設定
 LABEL maintainer="Xiaomi Video EXIF Enhancer"
-LABEL description="Container for processing Xiaomi camera videos with EXIF metadata enhancement (GPU-ready)"
+LABEL description="Container for processing Xiaomi camera videos with EXIF metadata enhancement (RTX 50 series optimized)"
 LABEL version="1.0.0"
 
 # 環境変数の設定
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV DEBIAN_FRONTEND=noninteractive
+# RTX 50シリーズ用CUDA設定
+ENV CUDA_LAUNCH_BLOCKING=1
+ENV TORCH_USE_CUDA_DSA=1
 
 # 作業ディレクトリの設定
 WORKDIR /app
@@ -23,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libgl1-mesa-glx \
+    git \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -33,8 +37,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# GPU対応PyTorchのインストール（Nightlyビルド - RTX 50シリーズ対応）
-RUN pip install --no-cache-dir --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
+# RTX 50シリーズ対応PyTorchのインストール（開発版）
+RUN pip install --no-cache-dir --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124 || \
+    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # アプリケーションコードをコピー
 COPY . .
