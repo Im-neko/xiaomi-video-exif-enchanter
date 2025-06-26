@@ -926,11 +926,15 @@ class XiaomiVideoEXIFEnhancer:
         
         # 並列処理の設定
         if max_workers is None:
-            # CPUコア数に基づいて自動設定（I/Oバウンドなので多めに設定）
-            max_workers = min(len(video_files), multiprocessing.cpu_count() * 2)
+            # CPUコア数に基づいて自動設定（メモリ不足対応で少なめに設定）
+            max_workers = min(len(video_files), max(1, multiprocessing.cpu_count() // 2))
         
-        # 少数ファイルの場合は並列処理を無効化
-        enable_parallel = len(video_files) > 2 and max_workers > 1
+        # 大量ファイルの場合は並列処理を制限
+        if len(video_files) > 1000:
+            max_workers = min(max_workers, 2)  # 大量ファイル時は最大2プロセス
+            enable_parallel = True
+        else:
+            enable_parallel = len(video_files) > 2 and max_workers > 1
         
         if self.debug:
             print(f"Parallel processing: {'Enabled' if enable_parallel else 'Disabled'}")
@@ -1091,103 +1095,112 @@ class XiaomiVideoEXIFEnhancer:
         # 実行器の選択
         executor_class = ThreadPoolExecutor if use_threading else ProcessPoolExecutor
         
-        with executor_class(max_workers=max_workers) as executor:
-            # 処理タスクを作成
-            future_to_file = {}
-            
-            for input_file in video_files:
-                # 出力ファイルパスを生成
-                try:
-                    if path_generator:
-                        if output_directory == os.path.dirname(input_file):
-                            output_file = path_generator.generate_output_path(input_file)
+        try:
+            with executor_class(max_workers=max_workers) as executor:
+                # 処理タスクを作成
+                future_to_file = {}
+                
+                for input_file in video_files:
+                    # 出力ファイルパスを生成
+                    try:
+                        if path_generator:
+                            if output_directory == os.path.dirname(input_file):
+                                output_file = path_generator.generate_output_path(input_file)
+                            else:
+                                base_name = Path(input_file).stem
+                                output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
                         else:
                             base_name = Path(input_file).stem
-                            output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
-                    else:
-                        base_name = Path(input_file).stem
-                        if output_directory == os.path.dirname(input_file):
-                            output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
+                            if output_directory == os.path.dirname(input_file):
+                                output_file = os.path.join(output_directory, f"{base_name}_enhanced.mp4")
+                            else:
+                                output_file = os.path.join(output_directory, f"{base_name}.mp4")
+                    
+                        # 既存ファイルのスキップチェック
+                        if os.path.exists(output_file):
+                            results['skipped_files'].append({
+                                'input': input_file,
+                                'output': output_file,
+                                'reason': 'Output file already exists'
+                            })
+                            continue
+                        
+                        # 並列処理タスクを投入
+                        if use_threading:
+                            # スレッドプール: 同一プロセス内でのOCRリーダー共有
+                            future = executor.submit(self._process_single_file_thread_safe, 
+                                                    input_file, output_file, location)
                         else:
-                            output_file = os.path.join(output_directory, f"{base_name}.mp4")
-                    
-                    # 既存ファイルのスキップチェック
-                    if os.path.exists(output_file):
-                        results['skipped_files'].append({
+                            # プロセスプール: 各プロセスで独立したリーダー初期化
+                            future = executor.submit(process_single_video_worker, 
+                                                    input_file, output_file, location, 
+                                                    self.languages, self.use_gpu, self.debug)
+                        
+                        future_to_file[future] = (input_file, output_file)
+                        
+                    except Exception as e:
+                        results['failed'] += 1
+                        results['failed_files'].append({
                             'input': input_file,
-                            'output': output_file,
-                            'reason': 'Output file already exists'
+                            'output': '',
+                            'error': f'Path generation error: {str(e)}'
                         })
-                        continue
-                    
-                    # 並列処理タスクを投入
-                    if use_threading:
-                        # スレッドプール: 同一プロセス内でのOCRリーダー共有
-                        future = executor.submit(self._process_single_file_thread_safe, 
-                                                input_file, output_file, location)
-                    else:
-                        # プロセスプール: 各プロセスで独立したリーダー初期化
-                        future = executor.submit(process_single_video_worker, 
-                                                input_file, output_file, location, 
-                                                self.languages, self.use_gpu, self.debug)
-                    
-                    future_to_file[future] = (input_file, output_file)
-                    
-                except Exception as e:
-                    results['failed'] += 1
-                    results['failed_files'].append({
-                        'input': input_file,
-                        'output': '',
-                        'error': f'Path generation error: {str(e)}'
-                    })
-            
-            # 結果を収集
-            completed = 0
-            total_tasks = len(future_to_file)
-            
-            for future in as_completed(future_to_file):
-                input_file, output_file = future_to_file[future]
-                file_name = os.path.basename(input_file)
-                completed += 1
                 
-                try:
-                    success = future.result()
+                # 結果を収集
+                completed = 0
+                total_tasks = len(future_to_file)
+                
+                for future in as_completed(future_to_file):
+                    input_file, output_file = future_to_file[future]
+                    file_name = os.path.basename(input_file)
+                    completed += 1
                     
-                    if success:
-                        results['successful'] += 1
-                        results['processed_files'].append({
-                            'input': input_file,
-                            'output': output_file,
-                            'status': 'success'
-                        })
-                        print(f"[{completed}/{total_tasks}] ✅ Success: {file_name}")
-                    else:
+                    try:
+                        success = future.result()
+                        
+                        if success:
+                            results['successful'] += 1
+                            results['processed_files'].append({
+                                'input': input_file,
+                                'output': output_file,
+                                'status': 'success'
+                            })
+                            print(f"[{completed}/{total_tasks}] ✅ Success: {file_name}")
+                        else:
+                            results['failed'] += 1
+                            results['failed_files'].append({
+                                'input': input_file,
+                                'output': output_file,
+                                'error': 'Processing failed - moved to failed folder'
+                            })
+                            print(f"[{completed}/{total_tasks}] ❌ Failed: {file_name}")
+                            
+                            if not skip_errors:
+                                # 残りのタスクをキャンセル
+                                for remaining_future in future_to_file:
+                                    if not remaining_future.done():
+                                        remaining_future.cancel()
+                                break
+                                
+                    except Exception as e:
                         results['failed'] += 1
                         results['failed_files'].append({
                             'input': input_file,
                             'output': output_file,
-                            'error': 'Processing failed - moved to failed folder'
+                            'error': str(e)
                         })
-                        print(f"[{completed}/{total_tasks}] ❌ Failed: {file_name}")
+                        print(f"[{completed}/{total_tasks}] ❌ Error: {file_name} - {e}")
                         
                         if not skip_errors:
-                            # 残りのタスクをキャンセル
-                            for remaining_future in future_to_file:
-                                if not remaining_future.done():
-                                    remaining_future.cancel()
                             break
-                            
-                except Exception as e:
-                    results['failed'] += 1
-                    results['failed_files'].append({
-                        'input': input_file,
-                        'output': output_file,
-                        'error': str(e)
-                    })
-                    print(f"[{completed}/{total_tasks}] ❌ Error: {file_name} - {e}")
-                    
-                    if not skip_errors:
-                        break
+        except Exception as e:
+            print(f"❌ Parallel processing error: {e}")
+            # フォールバックとして逐次処理を試行
+            print("Falling back to sequential processing...")
+            return self._process_batch_sequential(
+                video_files, output_directory, location, skip_errors, 
+                path_generator, results
+            )
         
         # 処理結果のサマリー（既存のコードと同じ）
         print(f"\n{'='*60}")
