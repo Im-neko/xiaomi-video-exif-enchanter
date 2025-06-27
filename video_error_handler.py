@@ -23,6 +23,7 @@ class VideoErrorType(Enum):
     INSUFFICIENT_SPACE = "insufficient_space"
     CODEC_ERROR = "codec_error"
     NETWORK_ERROR = "network_error"
+    OCR_FAILED = "ocr_failed"
     UNKNOWN_ERROR = "unknown_error"
 
 
