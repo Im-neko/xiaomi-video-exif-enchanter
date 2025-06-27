@@ -20,16 +20,20 @@ services:
     # または runtime設定（古いDocker Composeバージョン用）
     # runtime: nvidia
     
-    # 環境変数
+    # RTX 50シリーズ用環境変数
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - PYTHONUNBUFFERED=1
+      - CUDA_LAUNCH_BLOCKING=1
+      - TORCH_USE_CUDA_DSA=1
+      # GPU処理を有効化（RTX 5070 Ti対応）
+      - FORCE_GPU_MODE=1
     
     # ボリュームマウント
     volumes:
-      - ./input:/app/input
-      - ./output:/app/output
+      - ./input:/app/input:ro
+      - ./output:/app/output:rw
     
     # 作業ディレクトリ
     working_dir: /app

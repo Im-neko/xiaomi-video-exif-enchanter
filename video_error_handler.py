@@ -381,6 +381,76 @@ class VideoErrorHandler:
                 raise RuntimeError(message)
         
         return False
+    
+    def handle_video_processing(self, input_path: str, output_path: str, 
+                               location: Optional[str] = None) -> Dict[str, Any]:
+        """動画処理のエラーハンドリング
+        
+        Args:
+            input_path: 入力ファイルのパス
+            output_path: 出力ファイルのパス
+            location: 場所情報（オプション）
+            
+        Returns:
+            処理結果の辞書（should_skip, reason等）
+        """
+        try:
+            # 入力ファイルの検証
+            if not self.validate_video_file(input_path, raise_on_error=False):
+                error_type, message, details = self.analyze_file_error(input_path)
+                return {
+                    'should_skip': True,
+                    'reason': f'Invalid input file: {message}',
+                    'error_type': error_type.value,
+                    'details': details
+                }
+            
+            # 出力パスの検証
+            output_dir = os.path.dirname(output_path)
+            if output_dir and not os.path.exists(output_dir):
+                try:
+                    os.makedirs(output_dir, exist_ok=True)
+                except OSError as e:
+                    return {
+                        'should_skip': True,
+                        'reason': f'Cannot create output directory: {e}',
+                        'error_type': 'directory_creation_failed',
+                        'details': {'output_dir': output_dir, 'error': str(e)}
+                    }
+            
+            # 処理を続行
+            return {
+                'should_skip': False,
+                'reason': 'File validation passed',
+                'error_type': None,
+                'details': {}
+            }
+            
+        except Exception as e:
+            if self.debug:
+                self.logger.error(f"Error in handle_video_processing: {e}")
+            return {
+                'should_skip': True,
+                'reason': f'Unexpected error: {e}',
+                'error_type': 'unexpected_error',
+                'details': {'exception': str(e)}
+            }
+    
+    def log_error(self, error_type: VideoErrorType, file_path: str, message: str):
+        """エラーをログに記録
+        
+        Args:
+            error_type: エラータイプ
+            file_path: ファイルパス
+            message: エラーメッセージ
+        """
+        log_message = f"[{error_type.value}] {os.path.basename(file_path)}: {message}"
+        
+        if self.debug:
+            self.logger.error(log_message)
+        else:
+            # デバッグモードでない場合は標準エラー出力に表示
+            print(f"ERROR: {log_message}")
 
 
 def create_test_error_files():
