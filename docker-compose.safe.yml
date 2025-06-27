@@ -1,0 +1,188 @@
+version: '3.8'
+
+services:
+  # メインサービス（基本設定）
+  xiaomi-exif-enhancer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: xiaomi-video-exif-enhancer:latest
+    container_name: xiaomi-exif-enhancer
+    
+    # ボリュームマッピング
+    volumes:
+      - ./input:/app/input:rw
+      - ./output:/app/output:rw
+      - ./sample.mp4:/app/sample.mp4:ro
+    
+    # 環境変数
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Tokyo
+      - FORCE_CPU_MODE=1  # GPU無効化でメモリ使用量を削減
+    
+    # リソース制限（大量ファイル処理用に調整）
+    deploy:
+      resources:
+        limits:
+          memory: 4G  # メモリを増加
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    
+    restart: unless-stopped
+    profiles: ["manual"]
+
+  # 小さなバッチ処理（推奨）
+  xiaomi-small-batch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: xiaomi-video-exif-enhancer:latest
+    container_name: xiaomi-small-batch
+    profiles: ["small-batch"]
+    volumes:
+      - ./input:/app/input:rw
+      - ./output:/app/output:rw
+      - ./sample.mp4:/app/sample.mp4:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Asia/Tokyo
+      - FORCE_CPU_MODE=1
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    restart: unless-stopped
+    entrypoint: ["python", "exif_enhancer.py"]
+    command: [
+      "--batch", "/app/input",
+      "--batch-size", "20",
+      "--disable-parallel",
+      "--debug"
+    ]
+
+  # 中サイズバッチ処理
+  xiaomi-medium-batch:
+    extends: xiaomi-exif-enhancer
+    container_name: xiaomi-medium-batch
+    profiles: ["medium-batch"]
+    entrypoint: ["python", "exif_enhancer.py"]
+    command: [
+      "--batch", "/app/input",
+      "--batch-size", "50",
+      "--disable-parallel",
+      "--debug"
+    ]
+
+  # 大サイズバッチ処理（注意：長時間実行）
+  xiaomi-large-batch:
+    extends: xiaomi-exif-enhancer
+    container_name: xiaomi-large-batch
+    profiles: ["large-batch"]
+    entrypoint: ["python", "exif_enhancer.py"]
+    deploy:
+      resources:
+        limits:
+          memory: 6G  # さらにメモリを増加
+          cpus: '3.0'
+    command: [
+      "--batch", "/app/input",
+      "--batch-size", "100",
+      "--disable-parallel",
+      "--debug"
+    ]
+
+  # 単一ファイル処理
+  xiaomi-single:
+    extends: xiaomi-exif-enhancer
+    container_name: xiaomi-single
+    profiles: ["single"]
+    command: [
+      "/app/input/VIDEO_1750580208742.mp4",
+      "--output", "/app/output/test_single.mp4",
+      "--debug"
+    ]
+
+  # カスタム場所付きバッチ処理
+  xiaomi-batch-location:
+    extends: xiaomi-exif-enhancer
+    container_name: xiaomi-batch-location
+    profiles: ["batch-location"]
+    entrypoint: ["python", "exif_enhancer.py"]
+    command: [
+      "--batch", "/app/input",
+      "--batch-size", "30",
+      "--disable-parallel",
+      "--location", "リビング",
+      "--debug"
+    ]
+
+  # 継続処理（失敗ファイルをスキップして続行）
+  xiaomi-batch-continue:
+    extends: xiaomi-exif-enhancer
+    container_name: xiaomi-batch-continue
+    profiles: ["continue"]
+    entrypoint: ["python", "exif_enhancer.py"]
+    command: [
+      "--batch", "/app/input",
+      "--batch-size", "25",
+      "--disable-parallel",
+      "--debug"
+    ]
+
+  # 繰り返し処理用のベースサービス
+  xiaomi-repeat-base:
+    extends: xiaomi-exif-enhancer
+    profiles: ["never"]  # 直接実行されないようにする
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+    volumes:
+      - ./input:/app/input:rw
+      - ./output:/app/output:rw
+      - ./.batch_progress:/app/.batch_progress:rw
+      - ./.processed_files:/app/.processed_files:rw
+
+  # 小サイズ繰り返し処理（最も安全）
+  xiaomi-repeat-small:
+    extends: xiaomi-repeat-base
+    container_name: xiaomi-repeat-small
+    profiles: ["repeat-small"]
+    environment:
+      - BATCH_SIZE=20
+      - MAX_ITERATIONS=200
+    
+  # 中サイズ繰り返し処理
+  xiaomi-repeat-medium:
+    extends: xiaomi-repeat-base
+    container_name: xiaomi-repeat-medium
+    profiles: ["repeat-medium"]
+    environment:
+      - BATCH_SIZE=50
+      - MAX_ITERATIONS=100
+
+  # 大サイズ繰り返し処理
+  xiaomi-repeat-large:
+    extends: xiaomi-repeat-base
+    container_name: xiaomi-repeat-large
+    profiles: ["repeat-large"]
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+          cpus: '3.0'
+    environment:
+      - BATCH_SIZE=100
+      - MAX_ITERATIONS=50
+
+networks:
+  xiaomi-network:
+    driver: bridge

@@ -1,5 +1,5 @@
-# マルチステージビルド版 Dockerfile - Xiaomi Video EXIF Enhancer
-# ビルド効率とイメージサイズを最適化
+# マルチステージビルド版 GPU Dockerfile - Xiaomi Video EXIF Enhancer
+# ビルド効率とイメージサイズを最適化（RTX 50シリーズ対応）
 
 # =====================================
 # Stage 1: ベースとして依存関係をインストール
@@ -8,7 +8,7 @@ FROM python:3.11-slim as base
 
 # メタデータの設定
 LABEL maintainer="Xiaomi Video EXIF Enhancer"
-LABEL description="Multi-stage build for Xiaomi Video EXIF Enhancer"
+LABEL description="Multi-stage GPU build for Xiaomi Video EXIF Enhancer (RTX 50 series optimized)"
 
 # 環境変数の設定
 ENV PYTHONUNBUFFERED=1
@@ -22,19 +22,18 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # FFmpeg（映像処理用）
     ffmpeg \
-    # OpenCVの依存関係
-    libopencv-dev \
-    python3-opencv \
     # 画像処理ライブラリの依存関係
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    libgl1-mesa-glx \
     # ビルド用ツール（最終ステージでは削除）
     build-essential \
     curl \
     wget \
+    git \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
     && apt-get autoclean
@@ -47,9 +46,14 @@ FROM base as dependencies
 # Python依存関係ファイルをコピー（レイヤーキャッシュ最適化）
 COPY requirements.txt .
 
-# Python依存関係のインストール（キャッシュ最適化）
+# 基本的な依存関係のインストール
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
+
+# RTX 50シリーズ対応PyTorchのインストール（CUDA 12.8、sm_120対応）
+RUN pip install --no-cache-dir --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 || \
+    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 || \
+    pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # EasyOCRモデルの事前ダウンロード（初回実行時間短縮）
 RUN python -c "import easyocr; reader = easyocr.Reader(['en', 'ja']); print('EasyOCR models downloaded successfully')"
@@ -63,6 +67,13 @@ FROM python:3.11-slim as runtime
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV DEBIAN_FRONTEND=noninteractive
+# RTX 50シリーズ用CUDA設定（RTX 5070対応強化）
+ENV CUDA_LAUNCH_BLOCKING=1
+ENV TORCH_USE_CUDA_DSA=1
+ENV TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+ENV CUDA_MODULE_LOADING=LAZY
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+ENV TORCH_CUDNN_V8_API_ENABLED=1
 
 # 作業ディレクトリの設定
 WORKDIR /app
@@ -70,13 +81,12 @@ WORKDIR /app
 # 必要な実行時パッケージのみインストール（ビルドツールを除く）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    libopencv-dev \
-    python3-opencv \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
     && apt-get autoclean
@@ -97,16 +107,8 @@ COPY video_error_handler.py .
 # 実行可能にする
 RUN chmod +x exif_enhancer.py
 
-# 非rootユーザーの作成（セキュリティ向上）
-RUN groupadd -r appuser && useradd -r -g appuser -m appuser
-RUN chown -R appuser:appuser /app
-
 # データディレクトリの作成
-RUN mkdir -p /app/input /app/output && \
-    chown -R appuser:appuser /app/input /app/output
-
-# 非rootユーザーに切り替え
-USER appuser
+RUN mkdir -p /app/input /app/output
 
 # ヘルスチェック
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
