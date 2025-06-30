@@ -2,12 +2,12 @@ version: '3.8'
 
 services:
   # メインサービス（基本設定）
-  xiaomi-exif-enhancer:
+  xvee:
     build:
       context: .
       dockerfile: Dockerfile
-    image: xiaomi-video-exif-enhancer:latest
-    container_name: xiaomi-exif-enhancer
+    image: xvee:latest
+    container_name: xvee
     
     # ボリュームマッピング
     volumes:
@@ -35,12 +35,12 @@ services:
     profiles: ["manual"]
 
   # 小さなバッチ処理（推奨）
-  xiaomi-small-batch:
+  xvee-small-batch:
     build:
       context: .
       dockerfile: Dockerfile
-    image: xiaomi-video-exif-enhancer:latest
-    container_name: xiaomi-small-batch
+    image: xvee:latest
+    container_name: xvee-small-batch
     profiles: ["small-batch"]
     volumes:
       - ./input:/app/input:rw
@@ -68,9 +68,9 @@ services:
     ]
 
   # 中サイズバッチ処理
-  xiaomi-medium-batch:
-    extends: xiaomi-exif-enhancer
-    container_name: xiaomi-medium-batch
+  xvee-medium-batch:
+    extends: xvee
+    container_name: xvee-medium-batch
     profiles: ["medium-batch"]
     entrypoint: ["python", "exif_enchanter.py"]
     command: [
@@ -81,9 +81,9 @@ services:
     ]
 
   # 大サイズバッチ処理（注意：長時間実行）
-  xiaomi-large-batch:
-    extends: xiaomi-exif-enhancer
-    container_name: xiaomi-large-batch
+  xvee-large-batch:
+    extends: xvee
+    container_name: xvee-large-batch
     profiles: ["large-batch"]
     entrypoint: ["python", "exif_enchanter.py"]
     deploy:
@@ -99,9 +99,9 @@ services:
     ]
 
   # 単一ファイル処理
-  xiaomi-single:
-    extends: xiaomi-exif-enhancer
-    container_name: xiaomi-single
+  xvee-single:
+    extends: xvee
+    container_name: xvee-single
     profiles: ["single"]
     command: [
       "/app/input/VIDEO_1750580208742.mp4",
@@ -110,9 +110,9 @@ services:
     ]
 
   # カスタム場所付きバッチ処理
-  xiaomi-batch-location:
-    extends: xiaomi-exif-enhancer
-    container_name: xiaomi-batch-location
+  xvee-batch-location:
+    extends: xvee
+    container_name: xvee-batch-location
     profiles: ["batch-location"]
     entrypoint: ["python", "exif_enchanter.py"]
     command: [
@@ -124,9 +124,9 @@ services:
     ]
 
   # 継続処理（失敗ファイルをスキップして続行）
-  xiaomi-batch-continue:
-    extends: xiaomi-exif-enhancer
-    container_name: xiaomi-batch-continue
+  xvee-batch-continue:
+    extends: xvee
+    container_name: xvee-batch-continue
     profiles: ["continue"]
     entrypoint: ["python", "exif_enchanter.py"]
     command: [
@@ -137,8 +137,8 @@ services:
     ]
 
   # 繰り返し処理用のベースサービス
-  xiaomi-repeat-base:
-    extends: xiaomi-exif-enhancer
+  xvee-repeat-base:
+    extends: xvee
     profiles: ["never"]  # 直接実行されないようにする
     deploy:
       resources:
@@ -152,27 +152,27 @@ services:
       - ./.processed_files:/app/.processed_files:rw
 
   # 小サイズ繰り返し処理（最も安全）
-  xiaomi-repeat-small:
-    extends: xiaomi-repeat-base
-    container_name: xiaomi-repeat-small
+  xvee-repeat-small:
+    extends: xvee-repeat-base
+    container_name: xvee-repeat-small
     profiles: ["repeat-small"]
     environment:
       - BATCH_SIZE=20
       - MAX_ITERATIONS=200
     
   # 中サイズ繰り返し処理
-  xiaomi-repeat-medium:
-    extends: xiaomi-repeat-base
-    container_name: xiaomi-repeat-medium
+  xvee-repeat-medium:
+    extends: xvee-repeat-base
+    container_name: xvee-repeat-medium
     profiles: ["repeat-medium"]
     environment:
       - BATCH_SIZE=50
       - MAX_ITERATIONS=100
 
   # 大サイズ繰り返し処理
-  xiaomi-repeat-large:
-    extends: xiaomi-repeat-base
-    container_name: xiaomi-repeat-large
+  xvee-repeat-large:
+    extends: xvee-repeat-base
+    container_name: xvee-repeat-large
     profiles: ["repeat-large"]
     deploy:
       resources:
@@ -184,5 +184,5 @@ services:
       - MAX_ITERATIONS=50
 
 networks:
-  xiaomi-network:
+  xvee-network:
     driver: bridge

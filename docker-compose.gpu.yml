@@ -1,12 +1,12 @@
 version: '3.8'
 
 services:
-  xiaomi-video-exif-enhancer:
+  xvee-gpu:
     build:
       context: .
       dockerfile: Dockerfile.gpu
-    image: xiaomi-video-exif-enhancer:gpu
-    container_name: xiaomi-video-exif-enhancer-gpu
+    image: xvee:gpu
+    container_name: xvee-gpu
     
     # GPU設定
     deploy:
@@ -40,8 +40,8 @@ services:
     
     # ネットワーク設定（必要に応じて）
     networks:
-      - xiaomi-enhancer-network
+      - xvee-network
 
 networks:
-  xiaomi-enhancer-network:
+  xvee-network:
     driver: bridge

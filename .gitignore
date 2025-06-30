@@ -63,6 +63,7 @@ output/
 *.f4p
 *.f4a
 *.f4b
+*.jpg
 
 # Testing
 .pytest_cache/

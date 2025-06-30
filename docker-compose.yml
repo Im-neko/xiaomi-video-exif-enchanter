@@ -1,12 +1,12 @@
 version: '3.8'
 
 services:
-  xiaomi-exif-enhancer:
+  xvee:
     build:
       context: .
       dockerfile: Dockerfile
     image: xiaomi-tesseract:latest
-    container_name: xiaomi-exif-enhancer
+    container_name: xvee
     
     # ボリュームマッピング（ホストのディレクトリをコンテナにマウント）
     volumes:
@@ -24,7 +24,7 @@ services:
     
     # ネットワーク設定（必要に応じて）
     networks:
-      - xiaomi-network
+      - xvee-network
     
     # リソース制限（必要に応じて調整）
     deploy:
@@ -48,22 +48,22 @@ services:
       start_period: 40s
 
 # 単一ファイル処理用のサービス（オプション）
-  xiaomi-single:
-    extends: xiaomi-exif-enhancer
-    container_name: xiaomi-single-processor
+  xvee-single:
+    extends: xvee
+    container_name: xvee-single
     profiles: ["single"]
     command: ["sample.mp4", "--location", "Dockerテスト", "--debug"]
 
 # バッチ処理用のサービス（オプション）
-  xiaomi-batch:
-    extends: xiaomi-exif-enhancer
-    container_name: xiaomi-batch-processor
+  xvee-batch:
+    extends: xvee
+    container_name: xvee-batch
     profiles: ["batch"]
     command: ["--batch", "/app/input", "--location", "Dockerバッチ処理", "--debug"]
 
 # ネットワーク定義
 networks:
-  xiaomi-network:
+  xvee-network:
     driver: bridge
 
 # ボリューム定義（永続化が必要な場合）

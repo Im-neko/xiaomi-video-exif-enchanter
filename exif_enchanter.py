@@ -23,22 +23,10 @@ from file_manager import validate_video_file, validate_output_path
 
 # タイムスタンプ検出用の正規表現パターン定数
 TIMESTAMP_PATTERNS = [
-    # @記号付きドット区切り形式: @ 2025/05/28 19.41.14
-    r'@?\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2})[:.](\d{2})[:.](\d{2})',
-    # 標準的なドット区切り形式: 2024.12.28 15.30.45
-    r'(\d{4})\.(\d{1,2})\.(\d{1,2})\s+(\d{1,2})\.(\d{2})\.(\d{2})',
     # コロン区切り形式: 2024/12/28 15:30:45
     r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
-    # スペース無し形式: 20241228153045
-    r'(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})',
-    # ハイフン区切り形式: 2024-12-28 15:30:45
-    r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
-    # 日本語混在形式: 2024年12月28日 15時30分45秒
-    r'(\d{4})年(\d{1,2})月(\d{1,2})日\s*(\d{1,2})時(\d{2})分(\d{2})秒',
-    # AM/PM形式: 2024/12/28 3:30:45 PM
-    r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)',
-    # ISO形式: 2024-12-28T15:30:45
-    r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})'
+    # ハイフン区切り形式: 2024/12/28 15.30.45
+    r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}).(\d{2}).(\d{2})',
 ]
 
 class EasyOCRSingleton:
@@ -188,17 +176,17 @@ class XiaomiVideoExifEnchanter:
         """Xiaomi動画専用の固定タイムスタンプ位置でクロップ
         
         タイムスタンプ領域の座標:
-        - 左上: (0, 0)
-        - 右上: (1/4*width, 0)  
-        - 左下: (0, 3/68*height)
-        - 右下: (1/4*width, 3/68*height)
+        - 左上: (5/149*width, 0)
+        - 右上: (21/149*width, 0)  
+        - 左下: (5/149*width, 3/68*height)
+        - 右下: (32/149*width, 3/68*height)
         """
         height, width = frame.shape[:2]
         
         # 指定された座標を計算
-        x_start = 0
+        x_start = int(5 * width // 149)  # 5/149 * width
         y_start = 0
-        x_end = int(width // 4)  # 1/4 * width
+        x_end = int(32 * width // 149)  # 32/149 * width
         y_end = int(3 * height // 68)  # 3/68 * height
         
         # 座標の境界チェック
@@ -514,6 +502,40 @@ class XiaomiVideoExifEnchanter:
         )
         variants.append(("combined_advanced", combined_advanced))
         
+        # 2024年最新技術: 白文字on黒背景専用処理
+        white_on_dark_enhanced = self._enhance_white_on_dark_text(image)
+        variants.append(("white_on_dark_enhanced", white_on_dark_enhanced))
+        
+        # 色反転バリエーション（白文字→黒文字）
+        inverted_image = self._apply_color_inversion(image)
+        variants.append(("color_inverted", inverted_image))
+        
+        # 精密境界検出によるテキスト抽出
+        precise_text_extraction = self._apply_precise_text_extraction(image)
+        variants.append(("precise_text_extraction", precise_text_extraction))
+        
+        # ヒストグラム平均化によるコントラスト改善
+        histogram_equalized = self._apply_histogram_equalization(image)
+        variants.append(("histogram_equalized", histogram_equalized))
+        
+        # 複数スケールでのガウシアンフィルタ
+        multi_scale_gaussian = self._apply_multi_scale_gaussian(image)
+        variants.append(("multi_scale_gaussian", multi_scale_gaussian))
+        
+        # 組み合わせ: 色反転 + 拡大 + コントラスト強化
+        inverted_enhanced = self._enhance_contrast(
+            cv2.resize(self._apply_color_inversion(image), 
+                      (width * 2, height * 2), interpolation=cv2.INTER_CUBIC)
+        )
+        variants.append(("inverted_enhanced_2x", inverted_enhanced))
+        
+        # 組み合わせ: 白文字特化 + 拡大 + 余白
+        white_text_optimal = self._apply_uniform_padding(
+            cv2.resize(self._enhance_white_on_dark_text(image), 
+                      (width * 2, height * 2), interpolation=cv2.INTER_CUBIC), 20
+        )
+        variants.append(("white_text_optimal", white_text_optimal))
+        
         return variants
     
     def _enhance_contrast(self, image: np.ndarray) -> np.ndarray:
@@ -742,20 +764,139 @@ class XiaomiVideoExifEnchanter:
         else:
             return cv2.fastNlMeansDenoising(image, None, 10, 7, 21)
     
+    def _enhance_white_on_dark_text(self, image: np.ndarray) -> np.ndarray:
+        """白文字on黒背景専用の強化処理"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # 1. ヒストグラム平均化で輝度分布を改善
+        equalized = cv2.equalizeHist(gray)
+        
+        # 2. CLAHE for 局所的コントラスト改善
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
+        clahe_applied = clahe.apply(gray)
+        
+        # 3. 白文字領域の強調（上位ピクセルの明度を上げる）
+        bright_mask = gray > np.percentile(gray, 85)
+        enhanced = gray.copy()
+        enhanced[bright_mask] = np.minimum(enhanced[bright_mask] * 1.3, 255)
+        
+        # 4. 黒背景領域の抑制（下位ピクセルの明度を下げる）
+        dark_mask = gray < np.percentile(gray, 15)
+        enhanced[dark_mask] = enhanced[dark_mask] * 0.7
+        
+        # 5. 結果を組み合わせ
+        combined = cv2.addWeighted(clahe_applied, 0.4, enhanced.astype(np.uint8), 0.6, 0)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(combined, cv2.COLOR_GRAY2BGR)
+        return combined
+    
+    def _apply_color_inversion(self, image: np.ndarray) -> np.ndarray:
+        """色反転（白文字→黒文字に変換）"""
+        # 画像を反転
+        inverted = 255 - image
+        return inverted
+    
+    def _apply_precise_text_extraction(self, image: np.ndarray) -> np.ndarray:
+        """精密境界検出によるテキスト抽出"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # 1. ガウシアンブラーでノイズ除去
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        
+        # 2. アダプティブ二値化で精密なテキスト境界を検出
+        adaptive = cv2.adaptiveThreshold(blurred, 255, 
+                                       cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                       cv2.THRESH_BINARY, 9, 4)
+        
+        # 3. モルフォロジー演算でテキスト構造を強化
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+        morphed = cv2.morphologyEx(adaptive, cv2.MORPH_CLOSE, kernel)
+        
+        # 4. 小さなノイズを除去
+        kernel_clean = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
+        cleaned = cv2.morphologyEx(morphed, cv2.MORPH_OPEN, kernel_clean)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+        return cleaned
+    
+    def _apply_histogram_equalization(self, image: np.ndarray) -> np.ndarray:
+        """ヒストグラム平均化によるコントラスト改善"""
+        if len(image.shape) == 3:
+            # YUVカラースペースでY成分のみ平均化
+            yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+            yuv[:,:,0] = cv2.equalizeHist(yuv[:,:,0])
+            return cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+        else:
+            return cv2.equalizeHist(image)
+    
+    def _apply_multi_scale_gaussian(self, image: np.ndarray) -> np.ndarray:
+        """複数スケールでのガウシアンフィルタ"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # 複数のスケールでガウシアンフィルタを適用
+        scales = [1, 3, 5]
+        filtered_images = []
+        
+        for scale in scales:
+            if scale == 1:
+                filtered_images.append(gray)
+            else:
+                filtered = cv2.GaussianBlur(gray, (scale, scale), 0)
+                filtered_images.append(filtered)
+        
+        # 重み付き平均で結合
+        weights = [0.5, 0.3, 0.2]
+        result = np.zeros_like(gray, dtype=np.float32)
+        
+        for img, weight in zip(filtered_images, weights):
+            result += img.astype(np.float32) * weight
+        
+        result = np.clip(result, 0, 255).astype(np.uint8)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        return result
+    
     def _try_easyocr(self, image: np.ndarray, variant_name: str) -> Optional[Dict[str, Any]]:
-        """EasyOCRでOCRを試行"""
+        """EasyOCRでOCRを試行（タイムスタンプ特化）"""
         try:
             reader = EasyOCRSingleton.get_reader(self.languages, self.use_gpu, self.debug)
+            
+            # タイムスタンプ文字のみを対象とした設定
+            # EasyOCRはallowlistをサポートしていないが、結果をフィルタリング
             results = reader.readtext(image)
             
             if not results:
                 return None
             
+            # タイムスタンプ形式に近い結果のみを選択
+            filtered_results = []
+            for bbox, text, confidence in results:
+                # タイムスタンプに使用される文字のみを含む結果を優先
+                cleaned_text = re.sub(r'[^0-9/:.-@©\s]', '', text)
+                if cleaned_text and len(cleaned_text) >= 8:  # 最低限のタイムスタンプ長
+                    filtered_results.append((bbox, cleaned_text, confidence))
+            
+            if not filtered_results:
+                # フィルタ後に結果がない場合、元の結果から最適なものを選択
+                filtered_results = results
+            
             # 最適な結果を選択
-            best_match = self._find_best_timestamp_match(results)
+            best_match = self._find_best_timestamp_match(filtered_results)
             if best_match:
                 # 信頼度を取得
-                confidence = max([r[2] for r in results if r[1] == best_match], default=0)
+                confidence = max([r[2] for r in filtered_results if r[1] == best_match], default=0)
                 return {
                     'text': best_match,
                     'confidence': confidence,
@@ -775,8 +916,10 @@ class XiaomiVideoExifEnchanter:
         try:
             import pytesseract
             
-            # Tesseractの設定
-            config = '--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789/:.-@ '
+            # Tesseractの設定（タイムスタンプ特化）
+            # PSM 8: 単一単語として処理（タイムスタンプに最適）
+            # 文字ホワイトリスト: タイムスタンプに必要な文字のみ許可
+            config = '--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789/:.-@© '
             
             # OCR実行
             text = pytesseract.image_to_string(image, config=config).strip()
@@ -928,29 +1071,64 @@ class XiaomiVideoExifEnchanter:
         """動画ファイルにEXIFデータを追加"""
         try:
             import ffmpeg
+            import subprocess
+            
+            if self.debug:
+                print(f"Attempting to add metadata to: {video_path} -> {output_path}")
             
             # メタデータの準備
-            metadata = {}
+            metadata_args = []
             
             if creation_time:
                 # ISO 8601形式でタイムスタンプを設定
                 iso_timestamp = creation_time.isoformat()
-                metadata['creation_time'] = iso_timestamp
-                metadata['date'] = creation_time.strftime('%Y-%m-%d %H:%M:%S')
+                metadata_args.extend(['-metadata', f'creation_time={iso_timestamp}'])
                 
                 if self.debug:
                     print(f"Setting creation time: {iso_timestamp}")
             
-            # 追加のメタデータ
-            metadata['comment'] = 'Enhanced by Xiaomi Video EXIF Enhancer'
-            metadata['software'] = 'Xiaomi Video EXIF Enhancer'
+            # 直接subprocessでFFmpegを実行（ffmpeg-pythonのバグを回避）
+            cmd = [
+                'ffmpeg',
+                '-i', video_path,
+                '-c:v', 'copy',  # ビデオコーデックをコピー
+                '-c:a', 'copy',  # オーディオコーデックをコピー
+                '-map_metadata', '0',  # 元のメタデータを保持
+            ] + metadata_args + [
+                '-y',  # 上書きを許可
+                output_path
+            ]
             
-            # FFmpegでメタデータを埋め込み
-            stream = ffmpeg.input(video_path)
-            stream = ffmpeg.output(stream, output_path, vcodec='copy', acodec='copy', **metadata)
+            if self.debug:
+                print(f"FFmpeg command: {' '.join(cmd)}")
             
-            # 既存ファイルを上書きするオプションを追加
-            ffmpeg.run(stream, overwrite_output=True, quiet=not self.debug)
+            # FFmpegを実行
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            
+            if result.returncode == 0:
+                if self.debug:
+                    print(f"Successfully processed: {output_path}")
+                return True
+            else:
+                if self.debug:
+                    print(f"FFmpeg failed with return code: {result.returncode}")
+                    print(f"FFmpeg stderr: {result.stderr}")
+                
+                # フォールバック: メタデータなしでコピー
+                if self.debug:
+                    print("Attempting simple copy without metadata...")
+                
+                import shutil
+                shutil.copy2(video_path, output_path)
+                
+                if self.debug:
+                    print(f"File copied without metadata: {output_path}")
+                return True
             
             if self.debug:
                 print(f"Successfully added EXIF data to: {output_path}")
@@ -978,7 +1156,9 @@ class XiaomiVideoExifEnchanter:
             if self.debug:
                 print("FFmpeg stderr:")
                 if hasattr(e, 'stderr') and e.stderr:
-                    print(e.stderr.decode('utf-8', errors='replace'))
+                    stderr_output = e.stderr.decode('utf-8', errors='replace')
+                    print(stderr_output)
+                    
             return False
         except Exception as e:
             error_msg = f"Unexpected error during video processing: {e}"
@@ -1214,7 +1394,7 @@ def main() -> None:
     parser.add_argument('-l', '--location', help='Location information to add')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--batch', action='store_true', help='Process directory in batch mode')
-    parser.add_argument('--languages', nargs='+', default=['en', 'ja'], help='OCR languages')
+    parser.add_argument('--languages', nargs='+', default=['en'], help='OCR languages')
     parser.add_argument('--gpu', action='store_true', help='Use GPU for OCR')
     parser.add_argument('--confidence', type=float, default=0.5, help='OCR confidence threshold')
     parser.add_argument('--max-workers', type=int, help='Maximum number of parallel workers')
