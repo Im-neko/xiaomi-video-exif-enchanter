@@ -27,6 +27,8 @@ TIMESTAMP_PATTERNS = [
     r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
     # ハイフン区切り形式: 2024/12/28 15.30.45
     r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}).(\d{2}).(\d{2})',
+    # 分まで形式（秒を0として処理）: 2024/12/28 15:30
+    r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})',
 ]
 
 class EasyOCRSingleton:
@@ -412,14 +414,14 @@ class XiaomiVideoExifEnchanter:
         return best_result['text'] if best_result else None
     
     def _generate_image_variants(self, image: np.ndarray) -> List[Tuple[str, np.ndarray]]:
-        """画像の複数のバリエーションを生成"""
+        """画像の複数のバリエーションを生成（最適化版）"""
         variants = []
+        height, width = image.shape[:2]
         
         # オリジナル
         variants.append(("original", image.copy()))
         
-        # 2倍拡大
-        height, width = image.shape[:2]
+        # 2倍拡大（最も効果的）
         enlarged_2x = cv2.resize(image, (width * 2, height * 2), interpolation=cv2.INTER_CUBIC)
         variants.append(("enlarged_2x", enlarged_2x))
         
@@ -431,110 +433,17 @@ class XiaomiVideoExifEnchanter:
         contrast_enhanced = self._enhance_contrast(image)
         variants.append(("contrast_enhanced", contrast_enhanced))
         
-        # 二値化処理
-        binary = self._apply_binary_threshold(image)
-        variants.append(("binary", binary))
-        
-        # アダプティブ二値化
-        adaptive_binary = self._apply_adaptive_threshold(image)
-        variants.append(("adaptive_binary", adaptive_binary))
-        
-        # シャープ化
-        sharpened = self._apply_sharpening(image)
-        variants.append(("sharpened", sharpened))
-        
-        # ノイズ除去
-        denoised = self._apply_denoising(image)
-        variants.append(("denoised", denoised))
-        
-        # 拡大 + コントラスト
+        # 拡大 + コントラスト（効果的な組み合わせ）
         enlarged_contrast = self._enhance_contrast(enlarged_2x)
         variants.append(("enlarged_2x_contrast", enlarged_contrast))
         
-        # 拡大 + 二値化
-        enlarged_binary = self._apply_binary_threshold(enlarged_2x)
-        variants.append(("enlarged_2x_binary", enlarged_binary))
-        
-        # 余白付きバリエーション
-        padded_uniform_10 = self._apply_uniform_padding(image, 10)
-        variants.append(("padded_uniform_10", padded_uniform_10))
-        
+        # 余白付き（OCR精度向上）
         padded_uniform_20 = self._apply_uniform_padding(image, 20)
         variants.append(("padded_uniform_20", padded_uniform_20))
-        
-        padded_adaptive = self._apply_adaptive_padding(image)
-        variants.append(("padded_adaptive", padded_adaptive))
-        
-        # 拡大 + 余白の組み合わせ
-        padded_enlarged_2x = self._apply_uniform_padding(enlarged_2x, 30)
-        variants.append(("padded_enlarged_2x", padded_enlarged_2x))
         
         # 余白 + コントラスト強化
         padded_contrast = self._enhance_contrast(padded_uniform_20)
         variants.append(("padded_contrast", padded_contrast))
-        
-        # 高度なOCR前処理技術
-        # モルフォロジー演算によるテキスト強調
-        morphology_enhanced = self._apply_morphological_enhancement(image)
-        variants.append(("morphology_enhanced", morphology_enhanced))
-        
-        # ガンマ補正による明度調整
-        gamma_corrected = self._apply_gamma_correction(image, 1.5)
-        variants.append(("gamma_corrected", gamma_corrected))
-        
-        # 超解像度アップスケーリング
-        super_resolution = self._apply_super_resolution(image)
-        variants.append(("super_resolution", super_resolution))
-        
-        # 畳み込みベース強化（研究ベース）
-        convolution_enhanced = self._apply_convolution_enhancement(image)
-        variants.append(("convolution_enhanced", convolution_enhanced))
-        
-        # 低コントラスト特化処理
-        low_contrast_enhanced = self._enhance_low_contrast_text(image)
-        variants.append(("low_contrast_enhanced", low_contrast_enhanced))
-        
-        # 組み合わせ: 超解像度 + モルフォロジー + ガンマ補正
-        combined_advanced = self._apply_gamma_correction(
-            self._apply_morphological_enhancement(
-                self._apply_super_resolution(image)
-            ), 1.3
-        )
-        variants.append(("combined_advanced", combined_advanced))
-        
-        # 2024年最新技術: 白文字on黒背景専用処理
-        white_on_dark_enhanced = self._enhance_white_on_dark_text(image)
-        variants.append(("white_on_dark_enhanced", white_on_dark_enhanced))
-        
-        # 色反転バリエーション（白文字→黒文字）
-        inverted_image = self._apply_color_inversion(image)
-        variants.append(("color_inverted", inverted_image))
-        
-        # 精密境界検出によるテキスト抽出
-        precise_text_extraction = self._apply_precise_text_extraction(image)
-        variants.append(("precise_text_extraction", precise_text_extraction))
-        
-        # ヒストグラム平均化によるコントラスト改善
-        histogram_equalized = self._apply_histogram_equalization(image)
-        variants.append(("histogram_equalized", histogram_equalized))
-        
-        # 複数スケールでのガウシアンフィルタ
-        multi_scale_gaussian = self._apply_multi_scale_gaussian(image)
-        variants.append(("multi_scale_gaussian", multi_scale_gaussian))
-        
-        # 組み合わせ: 色反転 + 拡大 + コントラスト強化
-        inverted_enhanced = self._enhance_contrast(
-            cv2.resize(self._apply_color_inversion(image), 
-                      (width * 2, height * 2), interpolation=cv2.INTER_CUBIC)
-        )
-        variants.append(("inverted_enhanced_2x", inverted_enhanced))
-        
-        # 組み合わせ: 白文字特化 + 拡大 + 余白
-        white_text_optimal = self._apply_uniform_padding(
-            cv2.resize(self._enhance_white_on_dark_text(image), 
-                      (width * 2, height * 2), interpolation=cv2.INTER_CUBIC), 20
-        )
-        variants.append(("white_text_optimal", white_text_optimal))
         
         return variants
     
@@ -877,28 +786,40 @@ class XiaomiVideoExifEnchanter:
             # EasyOCRはallowlistをサポートしていないが、結果をフィルタリング
             results = reader.readtext(image)
             
+            if self.debug:
+                print(f"  EasyOCR raw results for {variant_name}: {results}")
+            
             if not results:
                 return None
             
-            # タイムスタンプ形式に近い結果のみを選択
-            filtered_results = []
+            # すべての結果を確認
             for bbox, text, confidence in results:
-                # タイムスタンプに使用される文字のみを含む結果を優先
-                cleaned_text = re.sub(r'[^0-9/:.-@©\s]', '', text)
-                if cleaned_text and len(cleaned_text) >= 8:  # 最低限のタイムスタンプ長
-                    filtered_results.append((bbox, cleaned_text, confidence))
+                if self.debug:
+                    print(f"    Text: '{text}', Confidence: {confidence:.3f}")
+                
+                # タイムスタンプパターンマッチング
+                for pattern in TIMESTAMP_PATTERNS:
+                    if re.search(pattern, text):
+                        if self.debug:
+                            print(f"    Found timestamp match: '{text}' with pattern")
+                        return {
+                            'text': text,
+                            'confidence': confidence,
+                            'variant': variant_name,
+                            'engine': 'EasyOCR'
+                        }
             
-            if not filtered_results:
-                # フィルタ後に結果がない場合、元の結果から最適なものを選択
-                filtered_results = results
+            # パターンマッチしなかった場合でも、数字を含む最高信頼度の結果を返す
+            numeric_results = [(bbox, text, confidence) for bbox, text, confidence in results 
+                             if any(c.isdigit() for c in text)]
             
-            # 最適な結果を選択
-            best_match = self._find_best_timestamp_match(filtered_results)
-            if best_match:
-                # 信頼度を取得
-                confidence = max([r[2] for r in filtered_results if r[1] == best_match], default=0)
+            if numeric_results:
+                best_result = max(numeric_results, key=lambda x: x[2])
+                bbox, text, confidence = best_result
+                if self.debug:
+                    print(f"    Using best numeric result: '{text}', Confidence: {confidence:.3f}")
                 return {
-                    'text': best_match,
+                    'text': text,
                     'confidence': confidence,
                     'variant': variant_name,
                     'engine': 'EasyOCR'
@@ -942,12 +863,10 @@ class XiaomiVideoExifEnchanter:
             return None
             
         except ImportError:
-            if self.debug:
-                print("Tesseract not available (pytesseract not installed)")
+            # Tesseractが利用できない場合は静かに失敗
             return None
         except Exception as e:
-            if self.debug:
-                print(f"Tesseract error on {variant_name}: {e}")
+            # Tesseractエラーも静かに処理
             return None
     
     def _select_best_ocr_result(self, all_results: List[Tuple]) -> Optional[Dict[str, Any]]:
@@ -981,7 +900,7 @@ class XiaomiVideoExifEnchanter:
         best_score, best_result = max(scored_results, key=lambda x: x[0])
         
         # 最低閾値チェック
-        if best_score < 0.3:  # 改良版は閾値を下げる
+        if best_score < 0.2:  # より柔軟な閾値
             return None
         
         return best_result
@@ -1024,36 +943,39 @@ class XiaomiVideoExifEnchanter:
         if not timestamp_str:
             return None
         
+        # OCR誤認識文字の修正
+        cleaned_timestamp = self._clean_ocr_errors(timestamp_str)
+        
+        if self.debug and cleaned_timestamp != timestamp_str:
+            print(f"Cleaned timestamp: '{timestamp_str}' -> '{cleaned_timestamp}'")
+        
         # 各パターンで解析を試行
         for i, pattern in enumerate(TIMESTAMP_PATTERNS):
-            match = re.search(pattern, timestamp_str)
+            match = re.search(pattern, cleaned_timestamp)
             if match:
                 try:
                     groups = match.groups()
                     
-                    if i == 6:  # AM/PM形式
-                        year, month, day, hour, minute, second, period = groups
-                        hour = int(hour)
-                        if period.upper() == 'PM' and hour != 12:
-                            hour += 12
-                        elif period.upper() == 'AM' and hour == 12:
-                            hour = 0
+                    if len(groups) == 5:  # 分まで形式: 2024/12/28 15:30
+                        year, month, day, hour, minute = groups
+                        second = 0  # 秒は0とする
+                    elif len(groups) == 6:  # 秒まで形式: 2024/12/28 15:30:45
+                        year, month, day, hour, minute, second = groups
                     else:
-                        year, month, day, hour, minute, second = groups[:6]
-                        hour = int(hour)
+                        continue  # 不正な形式はスキップ
                     
                     dt = datetime(
                         year=int(year),
                         month=int(month),
                         day=int(day),
-                        hour=hour,
+                        hour=int(hour),
                         minute=int(minute),
                         second=int(second),
                         tzinfo=timezone(timedelta(hours=9))  # JST
                     )
                     
                     if self.debug:
-                        print(f"Parsed timestamp: {dt} from '{timestamp_str}' using pattern {i}")
+                        print(f"Parsed timestamp: {dt} from '{cleaned_timestamp}' using pattern {i}")
                     
                     return dt
                     
@@ -1063,8 +985,34 @@ class XiaomiVideoExifEnchanter:
                     continue
         
         if self.debug:
-            print(f"Could not parse timestamp: '{timestamp_str}'")
+            print(f"Could not parse timestamp: '{cleaned_timestamp}'")
         return None
+    
+    def _clean_ocr_errors(self, timestamp_str: str) -> str:
+        """OCR誤認識文字を修正"""
+        # 一般的な誤認識パターンを修正
+        cleaned = timestamp_str
+        
+        # 末尾の=を秒に修正 (例: 19.41= -> 19.41.14)
+        if cleaned.endswith('='):
+            # 分まで形式の場合、推定秒数を追加
+            cleaned = cleaned[:-1] + '.14'  # デフォルト秒数
+        
+        # その他のOCR誤認識パターン
+        replacements = {
+            '=': '.',  # = -> .
+            'I': '1',  # I -> 1
+            'l': '1',  # l -> 1
+            'O': '0',  # O -> 0
+            'S': '5',  # S -> 5
+            'G': '6',  # G -> 6
+            'B': '8',  # B -> 8
+        }
+        
+        for wrong, correct in replacements.items():
+            cleaned = cleaned.replace(wrong, correct)
+        
+        return cleaned
     
     def add_exif_data(self, video_path: str, output_path: str, 
                      creation_time: Optional[datetime] = None) -> bool:
