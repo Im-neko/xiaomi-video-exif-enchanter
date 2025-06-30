@@ -485,6 +485,35 @@ class XiaomiVideoExifEnchanter:
         padded_contrast = self._enhance_contrast(padded_uniform_20)
         variants.append(("padded_contrast", padded_contrast))
         
+        # 高度なOCR前処理技術
+        # モルフォロジー演算によるテキスト強調
+        morphology_enhanced = self._apply_morphological_enhancement(image)
+        variants.append(("morphology_enhanced", morphology_enhanced))
+        
+        # ガンマ補正による明度調整
+        gamma_corrected = self._apply_gamma_correction(image, 1.5)
+        variants.append(("gamma_corrected", gamma_corrected))
+        
+        # 超解像度アップスケーリング
+        super_resolution = self._apply_super_resolution(image)
+        variants.append(("super_resolution", super_resolution))
+        
+        # 畳み込みベース強化（研究ベース）
+        convolution_enhanced = self._apply_convolution_enhancement(image)
+        variants.append(("convolution_enhanced", convolution_enhanced))
+        
+        # 低コントラスト特化処理
+        low_contrast_enhanced = self._enhance_low_contrast_text(image)
+        variants.append(("low_contrast_enhanced", low_contrast_enhanced))
+        
+        # 組み合わせ: 超解像度 + モルフォロジー + ガンマ補正
+        combined_advanced = self._apply_gamma_correction(
+            self._apply_morphological_enhancement(
+                self._apply_super_resolution(image)
+            ), 1.3
+        )
+        variants.append(("combined_advanced", combined_advanced))
+        
         return variants
     
     def _enhance_contrast(self, image: np.ndarray) -> np.ndarray:
@@ -567,6 +596,122 @@ class XiaomiVideoExifEnchanter:
             return cv2.copyMakeBorder(image, top_padding, bottom_padding, 
                                     left_padding, right_padding, 
                                     cv2.BORDER_CONSTANT, value=255)
+    
+    def _apply_morphological_enhancement(self, image: np.ndarray) -> np.ndarray:
+        """モルフォロジー演算によるテキスト強調"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # カーネルサイズをテキストサイズに応じて調整
+        kernel_size = max(1, min(gray.shape) // 100)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+        
+        # クロージング演算（ディレーション -> エロージョン）
+        # 文字の空白を埋めて連結性を向上
+        closing = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
+        
+        # オープニング演算（エロージョン -> ディレーション）
+        # ノイズ除去と文字分離
+        opening = cv2.morphologyEx(closing, cv2.MORPH_OPEN, kernel)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(opening, cv2.COLOR_GRAY2BGR)
+        return opening
+    
+    def _apply_gamma_correction(self, image: np.ndarray, gamma: float) -> np.ndarray:
+        """ガンマ補正による明度調整"""
+        # ガンマ補正用のルックアップテーブル作成
+        inv_gamma = 1.0 / gamma
+        table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+        
+        # ルックアップテーブル適用
+        return cv2.LUT(image, table)
+    
+    def _apply_super_resolution(self, image: np.ndarray) -> np.ndarray:
+        """超解像度アップスケーリング（INTER_CUBIC以上）"""
+        height, width = image.shape[:2]
+        
+        # 4倍拡大で高品質アップスケーリング
+        super_res = cv2.resize(image, (width * 4, height * 4), interpolation=cv2.INTER_LANCZOS4)
+        
+        # アンシャープマスクで追加シャープ化
+        if len(super_res.shape) == 3:
+            gray_temp = cv2.cvtColor(super_res, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_temp = super_res
+        
+        # アンシャープマスク適用
+        kernel = np.array([[-1,-1,-1,-1,-1],
+                          [-1, 2, 2, 2,-1],
+                          [-1, 2, 8, 2,-1],
+                          [-1, 2, 2, 2,-1],
+                          [-1,-1,-1,-1,-1]]) / 8.0
+        
+        sharpened = cv2.filter2D(gray_temp, -1, kernel)
+        
+        if len(image.shape) == 3:
+            # カラー画像の場合、シャープ化を元画像にブレンド
+            sharpened_bgr = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+            return cv2.addWeighted(super_res, 0.7, sharpened_bgr, 0.3, 0)
+        
+        return sharpened
+    
+    def _apply_convolution_enhancement(self, image: np.ndarray) -> np.ndarray:
+        """畳み込みベース強化（研究ベース）"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # 研究で効果が実証されたカーネル
+        # エッジ強化 + コントラスト強化の組み合わせ
+        edge_kernel = np.array([[-1, -1, -1],
+                               [-1,  8, -1],
+                               [-1, -1, -1]])
+        
+        contrast_kernel = np.array([[0, -1, 0],
+                                   [-1, 5, -1],
+                                   [0, -1, 0]])
+        
+        # エッジ強化適用
+        edge_enhanced = cv2.filter2D(gray, -1, edge_kernel)
+        edge_enhanced = np.clip(edge_enhanced, 0, 255).astype(np.uint8)
+        
+        # コントラスト強化適用
+        final = cv2.filter2D(edge_enhanced, -1, contrast_kernel)
+        final = np.clip(final, 0, 255).astype(np.uint8)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(final, cv2.COLOR_GRAY2BGR)
+        return final
+    
+    def _enhance_low_contrast_text(self, image: np.ndarray) -> np.ndarray:
+        """低コントラストテキスト特化処理"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # ヒストグラム平均化でコントラスト改善
+        equalized = cv2.equalizeHist(gray)
+        
+        # CLAHE（コントラスト制限適応的ヒストグラム平均化）
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
+        clahe_applied = clahe.apply(gray)
+        
+        # アダプティブ二値化でテキスト分離
+        adaptive_thresh = cv2.adaptiveThreshold(clahe_applied, 255, 
+                                              cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                              cv2.THRESH_BINARY, 11, 2)
+        
+        # 結果を組み合わせて最適化
+        combined = cv2.addWeighted(equalized, 0.5, clahe_applied, 0.5, 0)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(combined, cv2.COLOR_GRAY2BGR)
+        return combined
     
     def _apply_adaptive_threshold(self, image: np.ndarray) -> np.ndarray:
         """アダプティブ二値化"""
