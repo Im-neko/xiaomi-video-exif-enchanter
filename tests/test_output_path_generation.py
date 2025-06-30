@@ -10,7 +10,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from output_path_generator import OutputPathGenerator
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestOutputPathGeneration(unittest.TestCase):
@@ -233,8 +233,8 @@ class TestOutputPathIntegration(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
     
     def test_integration_with_enhancer(self):
-        """XiaomiVideoEXIFEnhancerとの統合テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        """XiaomiVideoExifEnchanterとの統合テスト"""
+        enhancer = XiaomiVideoExifEnchanter(debug=True)
         
         # 出力パス生成器がエンハンサーに統合されていることを確認
         self.assertIsNotNone(enhancer.path_generator)

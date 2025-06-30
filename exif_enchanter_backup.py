@@ -18,6 +18,7 @@ from typing import Optional, Tuple, Dict, Any, List
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import multiprocessing
+from tqdm import tqdm
 from functools import lru_cache
 from video_error_handler import VideoErrorHandler, VideoErrorType
 from output_path_generator import OutputPathGenerator
@@ -59,13 +60,44 @@ class EasyOCRSingleton:
         if languages is None:
             languages = ['en', 'ja']
         
-        # GPU利用可能性の自動検出
-        if gpu is None:
+        # 環境変数でのCPUモード強制チェック
+        force_cpu = os.environ.get('FORCE_CPU_MODE', '').lower() in ('1', 'true', 'yes')
+        force_gpu = os.environ.get('FORCE_GPU_MODE', '').lower() in ('1', 'true', 'yes')
+        
+        if force_cpu:
+            gpu = False
+            if debug:
+                print("GPU mode disabled by FORCE_CPU_MODE environment variable")
+        elif force_gpu:
+            gpu = True
+            if debug:
+                print("GPU mode forced by FORCE_GPU_MODE environment variable")
+        
+        # GPU利用可能性の自動検出とRTX 50シリーズ互換性チェック
+        elif gpu is None:
             try:
                 import torch
                 gpu = torch.cuda.is_available()
+                
+                # RTX 50シリーズの互換性チェック（GPU強制時は警告のみ）
+                if gpu and torch.cuda.is_available():
+                    device_name = torch.cuda.get_device_name(0)
+                    capability = torch.cuda.get_device_capability(0)
+                    
+                    # CUDA capability sm_120 (RTX 50シリーズ) の場合は警告（強制GPUモード時は継続）
+                    if capability[0] >= 12 or "RTX 50" in device_name or "RTX 5070" in device_name:
+                        if debug:
+                            print(f"⚠️ Detected {device_name} with CUDA capability sm_{capability[0]}{capability[1]}")
+                            if not force_gpu:
+                                print("RTX 50シリーズはPyTorch安定版で未サポートのため、CPUフォールバックを推奨")
+                                gpu = False  # GPU強制でない場合のみCPUモードに強制
+                            else:
+                                print("FORCE_GPU_MODE=1により強制的にGPUモードで継続します")
+                
                 if debug and gpu:
                     print("CUDA GPU detected, enabling GPU acceleration for OCR")
+                elif debug:
+                    print("Using CPU mode for EasyOCR (GPU disabled or incompatible)")
             except ImportError:
                 gpu = False
         
@@ -88,8 +120,29 @@ class EasyOCRSingleton:
                     cls._instances[key] = reader
                 except Exception as e:
                     if debug:
-                        print(f"Failed to initialize EasyOCR reader: {e}")
-                    raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
+                        print(f"Failed to initialize EasyOCR reader with GPU={gpu}: {e}")
+                    
+                    # GPU初期化に失敗した場合、CPUフォールバックを試行
+                    if gpu:
+                        if debug:
+                            print("Falling back to CPU mode...")
+                        try:
+                            reader = easyocr.Reader(languages, gpu=False)
+                            init_time = time.time() - start_time
+                            
+                            if debug:
+                                print(f"EasyOCR reader initialized in CPU mode in {init_time:.2f} seconds")
+                            
+                            # CPUモードでキャッシュ
+                            cpu_key = (tuple(sorted(languages)), False)
+                            cls._instances[cpu_key] = reader
+                            return reader
+                        except Exception as cpu_error:
+                            if debug:
+                                print(f"CPU fallback also failed: {cpu_error}")
+                            raise RuntimeError(f"Failed to initialize EasyOCR reader: GPU error: {e}, CPU error: {cpu_error}")
+                    else:
+                        raise RuntimeError(f"Failed to initialize EasyOCR reader: {e}")
             else:
                 if debug:
                     print("Reusing existing EasyOCR reader instance")
@@ -867,7 +920,8 @@ class XiaomiVideoEXIFEnhancer:
     
     def process_batch(self, input_directory: str, output_directory: Optional[str] = None,
                      location: Optional[str] = None, skip_errors: bool = True, 
-                     max_workers: Optional[int] = None, use_threading: bool = False) -> Dict[str, Any]:
+                     max_workers: Optional[int] = None, use_threading: bool = False,
+                     batch_size: Optional[int] = None) -> Dict[str, Any]:
         """ディレクトリ内のすべてのMP4ファイルをバッチ処理（並列処理対応）
         
         Args:
@@ -877,110 +931,72 @@ class XiaomiVideoEXIFEnhancer:
             skip_errors: エラーが発生したファイルをスキップするかどうか
             max_workers: 並列処理の最大ワーカー数（Noneの場合は自動設定）
             use_threading: スレッドプールを使用するか（Falseの場合はプロセスプール）
+            batch_size: 一度に処理するファイル数の上限（Noneの場合は制限なし）
             
         Returns:
             処理結果の辞書（成功数、失敗数、処理されたファイル一覧など）
         """
-        from pathlib import Path
-        import glob
-        
-        if self.debug:
-            print(f"Starting batch processing in directory: {input_directory}")
-        
-        # 入力ディレクトリの検証
-        if not os.path.exists(input_directory):
-            raise ValueError(f"Input directory not found: {input_directory}")
-        
-        if not os.path.isdir(input_directory):
-            raise ValueError(f"Input path is not a directory: {input_directory}")
-        
-        # 出力ディレクトリの設定
-        if output_directory is None:
-            output_directory = input_directory
-        
-        # 出力ディレクトリの作成
-        os.makedirs(output_directory, exist_ok=True)
-        
-        # MP4ファイルを検索
-        video_extensions = ['*.mp4', '*.MP4', '*.avi', '*.AVI', '*.mov', '*.MOV', 
-                           '*.mkv', '*.MKV', '*.webm', '*.WEBM']
-        video_files = []
-        
-        for extension in video_extensions:
-            pattern = os.path.join(input_directory, extension)
-            video_files.extend(glob.glob(pattern))
-        
-        if not video_files:
-            print(f"No video files found in directory: {input_directory}")
-            return {
-                'total_files': 0,
-                'successful': 0,
-                'failed': 0,
-                'processed_files': [],
-                'failed_files': [],
-                'skipped_files': []
-            }
-        
-        if self.debug:
-            print(f"Found {len(video_files)} video files")
-        
-        # 並列処理の設定
-        if max_workers is None:
-            # CPUコア数に基づいて自動設定（メモリ不足対応で少なめに設定）
-            max_workers = min(len(video_files), max(1, multiprocessing.cpu_count() // 2))
-        
-        # 大量ファイルの場合は並列処理を制限
-        if len(video_files) > 1000:
-            max_workers = min(max_workers, 2)  # 大量ファイル時は最大2プロセス
-            enable_parallel = True
-        else:
-            enable_parallel = len(video_files) > 2 and max_workers > 1
-        
-        if self.debug:
-            print(f"Parallel processing: {'Enabled' if enable_parallel else 'Disabled'}")
-            if enable_parallel:
-                print(f"Max workers: {max_workers}")
-                print(f"Executor type: {'ThreadPoolExecutor' if use_threading else 'ProcessPoolExecutor'}")
-        
-        # 出力パス生成器を初期化
+        # 新しいBatchProcessorを使用
+        batch_processor = BatchProcessor(self, debug=self.debug)
+        return batch_processor.process_batch(
+            input_directory, output_directory, location, skip_errors, 
+            max_workers, use_threading, batch_size
+        )
+    
+    def _process_single_file_thread_safe(self, input_path: str, output_path: str, 
+                                        location: Optional[str]) -> bool:
+        """スレッドセーフな単一ファイル処理（スレッドプール用）"""
         try:
-            from output_path_generator import OutputPathGenerator
-            path_generator = OutputPathGenerator(debug=self.debug)
-        except ImportError:
-            path_generator = None
+            return self.process_video(input_path, output_path, location)
+        except Exception as e:
             if self.debug:
-                print("OutputPathGenerator not available, using simple naming")
-        
-        # 処理結果を格納する辞書
-        results = {
-            'total_files': len(video_files),
-            'successful': 0,
-            'failed': 0,
-            'processed_files': [],
-            'failed_files': [],
-            'skipped_files': []
-        }
-        
-        # 並列処理または逐次処理の選択
-        if enable_parallel:
-            return self._process_batch_parallel(
-                video_files, output_directory, location, skip_errors, 
-                max_workers, use_threading, path_generator, results
-            )
-        else:
-            return self._process_batch_sequential(
-                video_files, output_directory, location, skip_errors, 
-                path_generator, results
-            )
+                print(f"Thread-safe processing error for {os.path.basename(input_path)}: {e}")
+            return False
+    
+    def _move_to_failed_folder(self, input_path: str, reason: str = "Unknown error", 
+                              output_dir: Optional[str] = None) -> None:
+        """失敗したファイルをfailedフォルダに移動（下位互換性のため）"""
+        from file_manager import FileManager
+        file_manager = FileManager(debug=self.debug)
+        file_manager.move_to_failed_folder(input_path, reason, output_dir)
     
     def _process_batch_sequential(self, video_files: List[str], output_directory: str, 
                                  location: Optional[str], skip_errors: bool,
                                  path_generator, results: Dict[str, Any]) -> Dict[str, Any]:
-        """逐次バッチ処理"""
-        # 各ファイルを処理
-        for i, input_file in enumerate(video_files, 1):
+        """逐次バッチ処理（メモリ効率化版）"""
+        
+        # プログレス表示の改善とガベージコレクション
+        import gc
+        import time
+        
+        start_time = time.time()
+        last_gc_time = start_time
+        
+        # 各ファイルを処理（プログレスバー付き）
+        progress_bar = tqdm(video_files, desc="Processing videos", unit="file")
+        
+        for i, input_file in enumerate(progress_bar, 1):
             file_name = os.path.basename(input_file)
-            print(f"\n[{i}/{len(video_files)}] Processing: {file_name}")
+            progress_bar.set_description(f"Processing: {file_name[:30]}")
+            
+            # デバッグ情報表示
+            if self.debug:
+                elapsed_time = time.time() - start_time
+                if i > 1:
+                    avg_time_per_file = elapsed_time / (i - 1)
+                    estimated_remaining = avg_time_per_file * (len(video_files) - i + 1)
+                    progress_bar.write(f"[{i}/{len(video_files)}] Processing: {file_name}")
+                    progress_bar.write(f"  Elapsed: {elapsed_time:.1f}s | Est. remaining: {estimated_remaining:.1f}s")
+                else:
+                    progress_bar.write(f"[{i}/{len(video_files)}] Processing: {file_name}")
+            
+            # 定期的なガベージコレクション（100ファイルごと）
+            current_time = time.time()
+            if current_time - last_gc_time > 300:  # 5分ごと
+                if self.debug:
+                    print("  Running garbage collection...")
+                gc.collect()
+                last_gc_time = current_time
             
             try:
                 # 出力ファイルパスを生成
@@ -999,12 +1015,27 @@ class XiaomiVideoEXIFEnhancer:
                     else:
                         output_file = os.path.join(output_directory, f"{base_name}.mp4")
                 
-                # 既存ファイルのスキップチェック
-                if os.path.exists(output_file):
-                    print(f"  ⚠ Output file already exists, skipping: {os.path.basename(output_file)}")
+                # 既存ファイルのスキップチェック（拡張版）
+                base_name = Path(input_file).stem
+                existing_patterns = [
+                    os.path.join(output_directory, f"{base_name}_enhanced.mp4"),
+                    os.path.join(output_directory, f"{base_name}_enhanced_001.mp4"),
+                    os.path.join(output_directory, f"{base_name}_enhanced_002.mp4"),
+                    os.path.join(output_directory, f"{base_name}_enhanced_003.mp4")
+                ]
+                
+                existing_file = None
+                for pattern in existing_patterns:
+                    if os.path.exists(pattern):
+                        existing_file = pattern
+                        break
+                
+                if existing_file:
+                    if self.debug:
+                        progress_bar.write(f"  ⚠ Output file already exists, skipping: {os.path.basename(existing_file)}")
                     results['skipped_files'].append({
                         'input': input_file,
-                        'output': output_file,
+                        'output': existing_file,
                         'reason': 'Output file already exists'
                     })
                     continue
@@ -1019,7 +1050,8 @@ class XiaomiVideoEXIFEnhancer:
                         'output': output_file,
                         'status': 'success'
                     })
-                    print(f"  ✅ Success: {os.path.basename(output_file)}")
+                    if self.debug:
+                        progress_bar.write(f"  ✅ Success: {os.path.basename(output_file)}")
                 else:
                     results['failed'] += 1
                     results['failed_files'].append({
@@ -1027,13 +1059,14 @@ class XiaomiVideoEXIFEnhancer:
                         'output': output_file,
                         'error': 'Processing failed - moved to failed folder'
                     })
-                    print(f"  ❌ Failed: {file_name}")
+                    if self.debug:
+                        progress_bar.write(f"  ❌ Failed: {file_name}")
                     
                     # 失敗したファイルは既に failed フォルダに移動されているため、
                     # outputディレクトリには作成されない
                     
                     if not skip_errors:
-                        print(f"Stopping batch processing due to error in: {file_name}")
+                        progress_bar.write(f"Stopping batch processing due to error in: {file_name}")
                         break
                         
             except Exception as e:
@@ -1043,17 +1076,17 @@ class XiaomiVideoEXIFEnhancer:
                     'output': '',
                     'error': str(e)
                 })
-                print(f"  ❌ Error processing {file_name}: {e}")
+                progress_bar.write(f"  ❌ Error processing {file_name}: {e}")
                 
                 # バッチ処理での例外も失敗フォルダに移動
                 try:
                     self._move_to_failed_folder(input_file, f"Batch processing error: {str(e)}", output_directory)
                 except Exception as move_error:
                     if self.debug:
-                        print(f"Could not move failed file in batch processing: {move_error}")
+                        progress_bar.write(f"Could not move failed file in batch processing: {move_error}")
                 
                 if not skip_errors:
-                    print(f"Stopping batch processing due to error in: {file_name}")
+                    progress_bar.write(f"Stopping batch processing due to error in: {file_name}")
                     break
         
         # 処理結果のサマリー
@@ -1063,7 +1096,7 @@ class XiaomiVideoEXIFEnhancer:
         print(f"Total files found: {results['total_files']}")
         print(f"Successfully processed: {results['successful']}")
         print(f"Failed: {results['failed']}")
-        print(f"Skipped: {len(results['skipped_files'])}")
+        print(f"Skipped (already processed): {results['skipped']}")
         
         if results['successful'] > 0:
             print(f"\n✅ Successfully processed files:")
@@ -1084,6 +1117,43 @@ class XiaomiVideoEXIFEnhancer:
         
         return results
     
+    def _filter_unprocessed_files(self, video_files: List[str], output_directory: str) -> List[str]:
+        """処理済みファイルを除外して、未処理のファイルのみを返す
+        
+        Args:
+            video_files: 入力ファイルのリスト
+            output_directory: 出力ディレクトリのパス
+            
+        Returns:
+            未処理のファイルのリスト
+        """
+        unprocessed_files = []
+        
+        for input_file in video_files:
+            base_name = Path(input_file).stem
+            
+            # 複数の出力ファイル名パターンをチェック
+            output_patterns = [
+                os.path.join(output_directory, f"{base_name}_enhanced.mp4"),
+                os.path.join(output_directory, f"{base_name}_processed.mp4"), 
+                os.path.join(output_directory, f"{base_name}_modified.mp4"),
+                os.path.join(output_directory, f"{base_name}.mp4"),
+                os.path.join(output_directory, "failed", f"{base_name}.mp4"),
+                os.path.join(output_directory, "failed", f"{base_name}_1.mp4"),
+                os.path.join(output_directory, "failed", f"{base_name}_2.mp4"),
+                os.path.join(output_directory, "failed", f"{base_name}_3.mp4")
+            ]
+            
+            # いずれかのパターンで処理済みファイルが存在するかチェック
+            already_processed = any(os.path.exists(pattern) for pattern in output_patterns)
+            
+            if not already_processed:
+                unprocessed_files.append(input_file)
+            elif self.debug:
+                print(f"Skipping already processed file: {os.path.basename(input_file)}")
+        
+        return unprocessed_files
+    
     def _process_batch_parallel(self, video_files: List[str], output_directory: str,
                                location: Optional[str], skip_errors: bool,
                                max_workers: int, use_threading: bool,
@@ -1100,7 +1170,11 @@ class XiaomiVideoEXIFEnhancer:
                 # 処理タスクを作成
                 future_to_file = {}
                 
+                # プログレスバー用の設定
+                progress_bar = tqdm(total=len(video_files), desc="Submitting tasks", unit="task")
+                
                 for input_file in video_files:
+                    progress_bar.set_description(f"Submitting: {os.path.basename(input_file)[:20]}")
                     # 出力ファイルパスを生成
                     try:
                         if path_generator:
@@ -1116,11 +1190,25 @@ class XiaomiVideoEXIFEnhancer:
                             else:
                                 output_file = os.path.join(output_directory, f"{base_name}.mp4")
                     
-                        # 既存ファイルのスキップチェック
-                        if os.path.exists(output_file):
+                        # 既存ファイルのスキップチェック（拡張版）
+                        base_name = Path(input_file).stem
+                        existing_patterns = [
+                            os.path.join(output_directory, f"{base_name}_enhanced.mp4"),
+                            os.path.join(output_directory, f"{base_name}_enhanced_001.mp4"),
+                            os.path.join(output_directory, f"{base_name}_enhanced_002.mp4"),
+                            os.path.join(output_directory, f"{base_name}_enhanced_003.mp4")
+                        ]
+                        
+                        existing_file = None
+                        for pattern in existing_patterns:
+                            if os.path.exists(pattern):
+                                existing_file = pattern
+                                break
+                        
+                        if existing_file:
                             results['skipped_files'].append({
                                 'input': input_file,
-                                'output': output_file,
+                                'output': existing_file,
                                 'reason': 'Output file already exists'
                             })
                             continue
@@ -1137,6 +1225,7 @@ class XiaomiVideoEXIFEnhancer:
                                                     self.languages, self.use_gpu, self.debug)
                         
                         future_to_file[future] = (input_file, output_file)
+                        progress_bar.update(1)
                         
                     except Exception as e:
                         results['failed'] += 1
@@ -1145,15 +1234,24 @@ class XiaomiVideoEXIFEnhancer:
                             'output': '',
                             'error': f'Path generation error: {str(e)}'
                         })
+                        progress_bar.update(1)
+                
+                progress_bar.close()
                 
                 # 結果を収集
                 completed = 0
                 total_tasks = len(future_to_file)
                 
+                # 処理用のプログレスバー
+                processing_bar = tqdm(total=total_tasks, desc="Processing videos", unit="file")
+                
                 for future in as_completed(future_to_file):
                     input_file, output_file = future_to_file[future]
                     file_name = os.path.basename(input_file)
                     completed += 1
+                    
+                    processing_bar.set_description(f"Completed: {file_name[:25]}")
+                    processing_bar.update(1)
                     
                     try:
                         success = future.result()
@@ -1165,7 +1263,8 @@ class XiaomiVideoEXIFEnhancer:
                                 'output': output_file,
                                 'status': 'success'
                             })
-                            print(f"[{completed}/{total_tasks}] ✅ Success: {file_name}")
+                            if self.debug:
+                                processing_bar.write(f"[{completed}/{total_tasks}] ✅ Success: {file_name}")
                         else:
                             results['failed'] += 1
                             results['failed_files'].append({
@@ -1173,7 +1272,8 @@ class XiaomiVideoEXIFEnhancer:
                                 'output': output_file,
                                 'error': 'Processing failed - moved to failed folder'
                             })
-                            print(f"[{completed}/{total_tasks}] ❌ Failed: {file_name}")
+                            if self.debug:
+                                processing_bar.write(f"[{completed}/{total_tasks}] ❌ Failed: {file_name}")
                             
                             if not skip_errors:
                                 # 残りのタスクをキャンセル
@@ -1189,10 +1289,13 @@ class XiaomiVideoEXIFEnhancer:
                             'output': output_file,
                             'error': str(e)
                         })
-                        print(f"[{completed}/{total_tasks}] ❌ Error: {file_name} - {e}")
+                        processing_bar.write(f"[{completed}/{total_tasks}] ❌ Error: {file_name} - {e}")
                         
                         if not skip_errors:
                             break
+                
+                processing_bar.close()
+                            
         except Exception as e:
             print(f"❌ Parallel processing error: {e}")
             # フォールバックとして逐次処理を試行
@@ -1209,7 +1312,7 @@ class XiaomiVideoEXIFEnhancer:
         print(f"Total files found: {results['total_files']}")
         print(f"Successfully processed: {results['successful']}")
         print(f"Failed: {results['failed']}")
-        print(f"Skipped: {len(results['skipped_files'])}")
+        print(f"Skipped (already processed): {results['skipped']}")
         
         if results['successful'] > 0:
             print(f"\n✅ Successfully processed files:")
@@ -1241,10 +1344,10 @@ class XiaomiVideoEXIFEnhancer:
             return False
     
     def _move_to_failed_folder(self, input_path: str, reason: str = "Unknown error", output_dir: Optional[str] = None) -> None:
-        """ファイルを失敗フォルダに移動
+        """ファイルを失敗フォルダにコピー
         
         Args:
-            input_path: 移動するファイルのパス
+            input_path: コピーするファイルのパス
             reason: 失敗理由
             output_dir: 出力ディレクトリ（指定されない場合は入力ファイルと同じディレクトリを使用）
         """
@@ -1274,20 +1377,20 @@ class XiaomiVideoEXIFEnhancer:
                 failed_path = os.path.join(failed_dir, f"{base_name}_{counter}{ext}")
                 counter += 1
             
-            # ファイルを移動
-            shutil.move(input_path, failed_path)
+            # ファイルをコピー（移動ではなく）
+            shutil.copy2(input_path, failed_path)
             
             if self.debug:
-                print(f"Moved failed file to: {failed_path}")
+                print(f"Copied failed file to: {failed_path}")
                 print(f"Reason: {reason}")
             else:
-                print(f"❌ Moved to failed folder: {filename} (Reason: {reason})")
+                print(f"❌ Copied to failed folder: {filename} (Reason: {reason})")
                 
         except Exception as e:
             if self.debug:
-                print(f"Failed to move file to failed folder: {e}")
+                print(f"Failed to copy file to failed folder: {e}")
             else:
-                print(f"⚠ Could not move file to failed folder: {e}")
+                print(f"⚠ Could not copy file to failed folder: {e}")
     
     def process_video(self, input_path: str, output_path: str, 
                      location: Optional[str] = None) -> bool:
@@ -1445,9 +1548,8 @@ Examples:
     )
     
     # 入力方式の選択
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('input', nargs='?', help='Input video file path (for single file processing)')
-    group.add_argument('--batch', metavar='DIR', help='Input directory path (for batch processing)')
+    parser.add_argument('input', nargs='?', help='Input video file path (for single file processing)')
+    parser.add_argument('--batch', metavar='DIR', help='Input directory path (for batch processing)')
     
     # 出力オプション
     parser.add_argument('-o', '--output', help='Output video file path (single file) or output directory (batch)')
@@ -1470,10 +1572,22 @@ Examples:
                        help='Disable parallel processing (force sequential)')
     parser.add_argument('--use-threading', action='store_true',
                        help='Use threading instead of multiprocessing for parallel execution')
+    parser.add_argument('--batch-size', type=int,
+                       help='Maximum number of files to process in one batch (prevents memory issues)')
     parser.add_argument('--gpu', action='store_true',
                        help='Enable GPU acceleration for OCR (requires CUDA)')
     
     args = parser.parse_args()
+    
+    # 入力方式の妥当性チェック
+    if args.batch and args.input:
+        print("Error: Cannot specify both input file and --batch directory")
+        parser.print_help()
+        sys.exit(1)
+    elif not args.batch and not args.input:
+        print("Error: Must specify either input file or --batch directory")
+        parser.print_help()
+        sys.exit(1)
     
     try:
         # 処理実行
@@ -1493,7 +1607,10 @@ Examples:
             
             # バッチ処理設定
             skip_errors = not args.no_skip_errors
-            max_workers = None if args.disable_parallel else args.max_workers
+            if args.disable_parallel:
+                max_workers = 1  # 並列処理を無効化（実質的にシーケンシャル処理）
+            else:
+                max_workers = args.max_workers
             use_threading = args.use_threading
             
             if args.debug:
@@ -1514,7 +1631,8 @@ Examples:
                 location=args.location,
                 skip_errors=skip_errors,
                 max_workers=max_workers,
-                use_threading=use_threading
+                use_threading=use_threading,
+                batch_size=args.batch_size
             )
             
             # 結果に基づいて終了コードを決定

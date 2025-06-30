@@ -5,7 +5,7 @@ Issue #7専用テスト: 日時文字列の標準形式への変換機能
 """
 
 from datetime import datetime
-from exif_enhancer import XiaomiVideoEXIFEnhancer, TIMESTAMP_PATTERNS
+from exif_enchanter import XiaomiVideoExifEnchanter, TIMESTAMP_PATTERNS
 import re
 
 
@@ -15,7 +15,7 @@ def test_issue_7_timestamp_parsing():
     print("Issue #7: 日時文字列の標準形式への変換機能 - 受け入れ条件テスト")
     print("=" * 70)
     
-    enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+    enhancer = XiaomiVideoExifEnchanter(debug=True)
     
     # 受け入れ条件1: 複数の日時フォーマットパターンの定義
     print(f"\n🧪 受け入れ条件1: 複数の日時フォーマットパターンの定義")

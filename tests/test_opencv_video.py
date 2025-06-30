@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import os
 import tempfile
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestOpenCVVideoReading(unittest.TestCase):
@@ -16,7 +16,7 @@ class TestOpenCVVideoReading(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
         self.sample_video = "sample.mp4"
     
     def test_get_video_info_success(self):
@@ -124,7 +124,7 @@ class TestVideoReadingErrorHandling(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
     
     def test_corrupted_video_handling(self):
         """破損した映像ファイルのハンドリングテスト"""

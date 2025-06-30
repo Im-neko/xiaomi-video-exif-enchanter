@@ -62,7 +62,7 @@ echo "================================================"
 if [ $# -eq 0 ]; then
     echo "ℹ️  No arguments provided, showing help:"
     echo ""
-    exec python exif_enhancer.py --help
+    exec python exif_enchanter.py --help
 elif [ "$1" = "bash" ] || [ "$1" = "sh" ]; then
     echo "🐚 Starting interactive shell..."
     exec /bin/bash
@@ -72,12 +72,12 @@ elif [ "$1" = "test" ]; then
 elif [ "$1" = "sample" ]; then
     echo "🎯 Processing sample video..."
     if [ -f "/app/sample.mp4" ]; then
-        exec python exif_enhancer.py sample.mp4 --location "Docker Sample Test" --debug
+        exec python exif_enchanter.py sample.mp4 --location "Docker Sample Test" --debug
     else
         echo "❌ sample.mp4 not found"
         exit 1
     fi
 else
-    echo "▶️  Executing: python exif_enhancer.py $@"
-    exec python exif_enhancer.py "$@"
+    echo "▶️  Executing: python exif_enchanter.py $@"
+    exec python exif_enchanter.py "$@"
 fi

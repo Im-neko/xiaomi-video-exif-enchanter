@@ -12,16 +12,16 @@ import os
 import tempfile
 from pathlib import Path
 
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
-class TestXiaomiVideoEXIFEnhancer(unittest.TestCase):
-    """XiaomiVideoEXIFEnhancer のテストクラス"""
+class TestXiaomiVideoExifEnchanter(unittest.TestCase):
+    """XiaomiVideoExifEnchanter のテストクラス"""
     
     def setUp(self):
         """Each test 前のセットアップ"""
         with patch('easyocr.Reader'):
-            self.enhancer = XiaomiVideoEXIFEnhancer()
+            self.enhancer = XiaomiVideoExifEnchanter()
     
     def test_crop_timestamp_area(self):
         """タイムスタンプ領域のクロップテスト"""
@@ -174,11 +174,11 @@ class TestXiaomiVideoEXIFEnhancer(unittest.TestCase):
         
         self.assertFalse(result)
     
-    @patch.object(XiaomiVideoEXIFEnhancer, 'add_exif_data')
-    @patch.object(XiaomiVideoEXIFEnhancer, 'parse_timestamp')
-    @patch.object(XiaomiVideoEXIFEnhancer, 'extract_timestamp')
-    @patch.object(XiaomiVideoEXIFEnhancer, 'crop_timestamp_area')
-    @patch.object(XiaomiVideoEXIFEnhancer, 'extract_first_frame')
+    @patch.object(XiaomiVideoExifEnchanter, 'add_exif_data')
+    @patch.object(XiaomiVideoExifEnchanter, 'parse_timestamp')
+    @patch.object(XiaomiVideoExifEnchanter, 'extract_timestamp')
+    @patch.object(XiaomiVideoExifEnchanter, 'crop_timestamp_area')
+    @patch.object(XiaomiVideoExifEnchanter, 'extract_first_frame')
     def test_process_video_success(self, mock_extract_frame, mock_crop, 
                                   mock_extract_ts, mock_parse_ts, mock_add_exif):
         """動画処理成功テスト"""
@@ -207,11 +207,11 @@ class TestXiaomiVideoEXIFEnhancer(unittest.TestCase):
 class TestMainFunction(unittest.TestCase):
     """main 関数のテストクラス"""
     
-    @patch('sys.argv', ['exif_enhancer.py', 'nonexistent.mp4'])
+    @patch('sys.argv', ['exif_enchanter.py', 'nonexistent.mp4'])
     @patch('os.path.exists')
     def test_main_file_not_found(self, mock_exists):
         """入力ファイルが存在しない場合のテスト"""
-        from exif_enhancer import main
+        from exif_enchanter import main
         
         mock_exists.return_value = False
         
@@ -220,13 +220,13 @@ class TestMainFunction(unittest.TestCase):
         
         self.assertEqual(context.exception.code, 1)
     
-    @patch('sys.argv', ['exif_enhancer.py', 'input.mp4'])
+    @patch('sys.argv', ['exif_enchanter.py', 'input.mp4'])
     @patch('os.path.exists')
-    @patch.object(XiaomiVideoEXIFEnhancer, 'process_video')
+    @patch.object(XiaomiVideoExifEnchanter, 'process_video')
     @patch('easyocr.Reader')
     def test_main_success(self, mock_reader, mock_process, mock_exists):
         """正常処理のテスト"""
-        from exif_enhancer import main
+        from exif_enchanter import main
         
         mock_exists.return_value = True
         mock_process.return_value = True

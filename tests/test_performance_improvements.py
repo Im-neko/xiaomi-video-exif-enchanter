@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 import cv2
 import numpy as np
-from exif_enhancer import XiaomiVideoEXIFEnhancer, EasyOCRSingleton
+from exif_enchanter import XiaomiVideoExifEnchanter, EasyOCRSingleton
 
 
 def create_test_video(output_path: str, duration: int = 1, fps: int = 30) -> None:
@@ -52,7 +52,7 @@ def test_easycr_singleton_performance():
     
     for i in range(3):
         start_time = time.time()
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         init_time = time.time() - start_time
         times_traditional.append(init_time)
         print(f"  Instance {i+1}: {init_time:.2f} seconds")
@@ -69,7 +69,7 @@ def test_easycr_singleton_performance():
     
     # 最初の初期化
     start_time = time.time()
-    enhancer1 = XiaomiVideoEXIFEnhancer(debug=False)
+    enhancer1 = XiaomiVideoExifEnchanter(debug=False)
     first_init_time = time.time() - start_time
     times_singleton.append(first_init_time)
     print(f"  First instance: {first_init_time:.2f} seconds")
@@ -77,7 +77,7 @@ def test_easycr_singleton_performance():
     # 2回目以降（シングルトンの効果）
     for i in range(2):
         start_time = time.time()
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         init_time = time.time() - start_time
         times_singleton.append(init_time)
         print(f"  Instance {i+2}: {init_time:.2f} seconds")
@@ -119,7 +119,7 @@ def test_parallel_processing_performance():
         
         # テスト1: 逐次処理
         print("\nTest 1: Sequential processing")
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         start_time = time.time()
         results_sequential = enhancer.process_batch(
@@ -198,7 +198,7 @@ def test_combined_performance():
         os.makedirs(output_dir, exist_ok=True)
         
         # 最適化されたバッチ処理
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         start_time = time.time()
         results = enhancer.process_batch(

@@ -8,7 +8,7 @@ import tempfile
 import os
 import numpy as np
 from datetime import datetime
-from exif_enhancer import XiaomiVideoEXIFEnhancer, TIMESTAMP_PATTERNS
+from exif_enchanter import XiaomiVideoExifEnchanter, TIMESTAMP_PATTERNS
 import re
 
 
@@ -18,7 +18,7 @@ def test_issue_6_ocr_patterns():
     print("Issue #6: 日時パターンの正規表現定義と抽出 - 受け入れ条件テスト")
     print("=" * 70)
     
-    enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+    enhancer = XiaomiVideoExifEnchanter(debug=True)
     
     # 受け入れ条件1: Xiaomi C301の日時フォーマット調査
     print(f"\n🧪 受け入れ条件1: Xiaomi C301の日時フォーマット調査")

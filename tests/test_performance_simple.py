@@ -6,7 +6,7 @@ EasyOCRシングルトンと並列処理の基本的な効果を確認
 
 import time
 import multiprocessing
-from exif_enhancer import XiaomiVideoEXIFEnhancer, EasyOCRSingleton
+from exif_enchanter import XiaomiVideoExifEnchanter, EasyOCRSingleton
 
 
 def test_easyocr_singleton():
@@ -16,14 +16,14 @@ def test_easyocr_singleton():
     # 1回目: 新しいインスタンス（初期化コスト有り）
     print("1st instance creation:")
     start_time = time.time()
-    enhancer1 = XiaomiVideoEXIFEnhancer(debug=False)
+    enhancer1 = XiaomiVideoExifEnchanter(debug=False)
     time1 = time.time() - start_time
     print(f"  Time: {time1:.3f} seconds")
     
     # 2回目: シングルトンによる再利用（初期化コスト無し）
     print("\n2nd instance creation (singleton reuse):")
     start_time = time.time()
-    enhancer2 = XiaomiVideoEXIFEnhancer(debug=False)
+    enhancer2 = XiaomiVideoExifEnchanter(debug=False)
     time2 = time.time() - start_time
     print(f"  Time: {time2:.3f} seconds")
     
@@ -56,7 +56,7 @@ def test_parallel_capability():
     print(f"System CPU cores: {cpu_count}")
     
     # 並列処理設定のテスト
-    enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+    enhancer = XiaomiVideoExifEnchanter(debug=False)
     
     # 仮想的なファイルリストで並列処理オーバーヘッドを測定
     test_files = [f"test_file_{i}.mp4" for i in range(8)]
@@ -109,12 +109,12 @@ def test_gpu_availability():
     try:
         print("\nTesting EasyOCR with GPU settings:")
         start_time = time.time()
-        enhancer_gpu = XiaomiVideoEXIFEnhancer(debug=False, use_gpu=True)
+        enhancer_gpu = XiaomiVideoExifEnchanter(debug=False, use_gpu=True)
         gpu_init_time = time.time() - start_time
         print(f"  GPU-enabled initialization: {gpu_init_time:.3f} seconds")
         
         start_time = time.time()
-        enhancer_cpu = XiaomiVideoEXIFEnhancer(debug=False, use_gpu=False)
+        enhancer_cpu = XiaomiVideoExifEnchanter(debug=False, use_gpu=False)
         cpu_init_time = time.time() - start_time
         print(f"  CPU-only initialization: {cpu_init_time:.3f} seconds")
         

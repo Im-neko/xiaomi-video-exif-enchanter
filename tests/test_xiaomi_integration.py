@@ -10,7 +10,7 @@ import numpy as np
 import os
 import time
 from datetime import datetime
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestXiaomiCameraIntegration(unittest.TestCase):
@@ -48,7 +48,7 @@ class TestXiaomiCameraIntegration(unittest.TestCase):
     
     def test_frame_extraction_with_real_video(self):
         """実際の動画からのフレーム抽出テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # フレーム抽出実行
         start_time = time.time()
@@ -67,7 +67,7 @@ class TestXiaomiCameraIntegration(unittest.TestCase):
     
     def test_timestamp_area_cropping(self):
         """タイムスタンプ領域のクロッピングテスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # フレーム抽出とクロップ
         frame = enhancer.extract_first_frame(self.sample_video)
@@ -88,7 +88,7 @@ class TestXiaomiCameraIntegration(unittest.TestCase):
     
     def test_ocr_processing_accuracy(self):
         """OCR処理精度テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        enhancer = XiaomiVideoExifEnchanter(debug=True)
         
         # フレーム抽出とクロップ
         frame = enhancer.extract_first_frame(self.sample_video)
@@ -124,7 +124,7 @@ class TestXiaomiCameraIntegration(unittest.TestCase):
     
     def test_ocr_consistency_multiple_runs(self):
         """OCR処理の一貫性テスト（複数回実行）"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # フレーム抽出とクロップ
         frame = enhancer.extract_first_frame(self.sample_video)
@@ -159,7 +159,7 @@ class TestXiaomiCameraIntegration(unittest.TestCase):
     
     def test_performance_benchmarks(self):
         """パフォーマンスベンチマークテスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # 全体処理のベンチマーク
         benchmarks = {}
@@ -204,7 +204,7 @@ class TestXiaomiCameraIntegration(unittest.TestCase):
     
     def test_timestamp_parsing_robustness(self):
         """タイムスタンプパース機能の堅牢性テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # 様々なタイムスタンプ形式のテストケース
         test_cases = [
@@ -234,7 +234,7 @@ class TestXiaomiCameraIntegration(unittest.TestCase):
     
     def test_error_handling_robustness(self):
         """エラーハンドリングの堅牢性テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # 1. 存在しないファイルのテスト
         with self.assertRaises(FileNotFoundError):
@@ -288,7 +288,7 @@ class TestXiaomiCameraMemoryUsage(unittest.TestCase):
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
         
         # 複数回処理実行
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         for i in range(10):
             frame = enhancer.extract_first_frame(self.sample_video)

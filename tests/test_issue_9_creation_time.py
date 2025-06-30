@@ -8,7 +8,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 def test_issue_9_comprehensive():
@@ -17,7 +17,7 @@ def test_issue_9_comprehensive():
     print("Issue #9: 作成日時のEXIF情報への埋め込み - 受け入れ条件テスト")
     print("=" * 70)
     
-    enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+    enhancer = XiaomiVideoExifEnchanter(debug=True)
     
     # テスト用一時ディレクトリ
     with tempfile.TemporaryDirectory() as temp_dir:

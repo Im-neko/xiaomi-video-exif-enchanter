@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import os
 import tempfile
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestTimestampCropping(unittest.TestCase):
@@ -16,8 +16,8 @@ class TestTimestampCropping(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
-        self.debug_enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
+        self.debug_enhancer = XiaomiVideoExifEnchanter(debug=True)
         self.sample_video = "sample.mp4"
         
         # テスト用のダミーフレームを作成
@@ -155,7 +155,7 @@ class TestTimestampCroppingWithSampleVideo(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
         self.sample_video = "sample.mp4"
     
     def test_crop_sample_video_timestamp_area(self):
@@ -215,7 +215,7 @@ class TestTimestampCroppingCompatibility(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
         self.sample_video = "sample.mp4"
     
     def test_backward_compatibility_with_existing_tests(self):

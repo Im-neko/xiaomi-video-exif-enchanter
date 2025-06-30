@@ -15,7 +15,7 @@ Xiaomi Video EXIF Enhancerの開発・拡張に関する技術情報を記載し
 
 ### 主要コンポーネント
 ```
-exif_enhancer.py
+exif_enchanter.py
 ├── XiaomiVideoEXIFEnhancer     # メインクラス
 ├── extract_first_frame()       # フレーム抽出
 ├── crop_timestamp_area()       # タイムスタンプ領域切り出し
@@ -58,8 +58,8 @@ except VideoProcessingError as e:
 ### 基本インストール
 ```bash
 # プロジェクトクローン
-git clone https://github.com/your-username/xiaomi-video-exif-enchanter.git
-cd xiaomi-video-exif-enchanter
+git clone https://github.com/your-username/xvee.git
+cd xvee
 
 # 依存関係インストール
 pip install -e .[dev]
@@ -68,7 +68,7 @@ pip install -e .[dev]
 ### テスト実行
 ```bash
 # 基本テスト
-python -m unittest test_exif_enhancer.py -v
+python -m unittest test_exif_enchanter.py -v
 
 # サンプル動画統合テスト
 python test_sample_video.py -v
@@ -92,11 +92,11 @@ python -m unittest discover -s . -p "test_*.py" -v
 ### 新機能のデバッグ
 ```bash
 # タイムゾーン変換の確認
-python exif_enhancer.py sample.mp4 --debug
+python exif_enchanter.py sample.mp4 --debug
 
 # バッチ処理のテスト
 mkdir test_batch && cp sample.mp4 test_batch/
-python exif_enhancer.py --batch test_batch --debug
+python exif_enchanter.py --batch test_batch --debug
 
 # FFmpegメタデータ確認
 ffprobe -v quiet -show_entries format_tags=creation_time output_sample.mp4
