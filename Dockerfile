@@ -25,6 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # OpenCVの依存関係
     libopencv-dev \
     python3-opencv \
+    # Tesseract OCR
+    tesseract-ocr \
+    tesseract-ocr-jpn \
+    tesseract-ocr-eng \
+    libtesseract-dev \
     # 画像処理ライブラリの依存関係
     libglib2.0-0 \
     libsm6 \
@@ -72,6 +77,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libopencv-dev \
     python3-opencv \
+    # Tesseract OCR実行時パッケージ
+    tesseract-ocr \
+    tesseract-ocr-jpn \
+    tesseract-ocr-eng \
+    libtesseract5 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -87,7 +97,7 @@ COPY --from=dependencies /usr/local/bin/ /usr/local/bin/
 COPY --from=dependencies /root/.EasyOCR/ /root/.EasyOCR/
 
 # アプリケーションコードをコピー（最後に配置してコード変更時のキャッシュを活用）
-COPY exif_enhancer.py .
+COPY exif_enchanter.py .
 COPY batch_processor.py .
 COPY file_manager.py .
 COPY progress_manager.py .
@@ -95,7 +105,7 @@ COPY output_path_generator.py .
 COPY video_error_handler.py .
 
 # 実行可能にする
-RUN chmod +x exif_enhancer.py
+RUN chmod +x exif_enchanter.py
 
 # 非rootユーザーの作成（セキュリティ向上）
 RUN groupadd -r appuser && useradd -r -g appuser -m appuser
@@ -110,13 +120,13 @@ USER appuser
 
 # ヘルスチェック
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; from exif_enhancer import XiaomiVideoExifEnhancer; print('Container is healthy'); sys.exit(0)"
+    CMD python -c "import sys; from exif_enchanter import XiaomiVideoExifEnchanter; print('Container is healthy'); sys.exit(0)"
 
 # ボリュームのマウントポイント
 VOLUME ["/app/input", "/app/output"]
 
 # デフォルトのエントリーポイント
-ENTRYPOINT ["python", "exif_enhancer.py"]
+ENTRYPOINT ["python", "exif_enchanter.py"]
 
 # デフォルトコマンド（ヘルプ表示）
 CMD ["--help"]

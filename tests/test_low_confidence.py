@@ -7,13 +7,13 @@ import sys
 import os
 sys.path.append('/app')
 
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 def test_low_confidence_processing():
     """低信頼度設定でのテスト"""
     
     # 信頼度を下げた設定でEnhancerを初期化
-    enhancer = XiaomiVideoEXIFEnhancer(debug=True, use_gpu=False)
+    enhancer = XiaomiVideoExifEnchanter(debug=True, use_gpu=False)
     enhancer.set_confidence_threshold(0.3)  # 信頼度を下げる
     
     input_file = '/app/input/VIDEO_1750580208742.mp4'

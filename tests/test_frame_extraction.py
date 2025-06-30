@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import os
 import tempfile
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestFrameExtraction(unittest.TestCase):
@@ -16,8 +16,8 @@ class TestFrameExtraction(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
-        self.debug_enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
+        self.debug_enhancer = XiaomiVideoExifEnchanter(debug=True)
         self.sample_video = "sample.mp4"
     
     def test_extract_first_frame_format_validation(self):
@@ -153,7 +153,7 @@ class TestFrameExtractionErrorHandling(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
     
     def test_extract_frame_empty_video(self):
         """空の映像ファイルでのフレーム抽出テスト"""
@@ -201,7 +201,7 @@ class TestFrameExtractionWithSampleVideo(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
         self.sample_video = "sample.mp4"
     
     def test_sample_video_frame_extraction(self):

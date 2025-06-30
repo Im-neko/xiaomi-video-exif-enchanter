@@ -8,7 +8,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 def test_issue_8_ffmpeg_basic():
@@ -17,7 +17,7 @@ def test_issue_8_ffmpeg_basic():
     print("Issue #8: ffmpeg-pythonを使った基本的なメタデータ追加 - 受け入れ条件テスト")
     print("=" * 70)
     
-    enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+    enhancer = XiaomiVideoExifEnchanter(debug=True)
     
     # テスト用一時ディレクトリ
     with tempfile.TemporaryDirectory() as temp_dir:

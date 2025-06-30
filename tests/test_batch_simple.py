@@ -13,7 +13,7 @@ def test_batch_processing():
     
     # Run with CPU mode to avoid GPU initialization delay
     cmd = [
-        'python3', 'exif_enhancer.py',
+        'python3', 'exif_enchanter.py',
         '--batch', 'input/',
         '--output', 'output/',
         '--batch-size', '3',

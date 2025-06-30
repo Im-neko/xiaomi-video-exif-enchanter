@@ -35,13 +35,13 @@ Xiaomiホームカメラ(C301)で録画された映像のEXIF情報を拡張す�
 ### CLI設計
 ```bash
 # 基本的な使用（自動出力ファイル名生成）
-python exif_enhancer.py input.mp4 --location "リビング"
+python exif_enchanter.py input.mp4 --location "リビング"
 
 # 明示的な出力指定
-python exif_enhancer.py input.mp4 --location "リビング" --output enhanced_output.mp4
+python exif_enchanter.py input.mp4 --location "リビング" --output enhanced_output.mp4
 
 # バッチ処理
-python exif_enhancer.py --batch ./videos/ --location "リビング" --output-dir ./enhanced/
+python exif_enchanter.py --batch ./videos/ --location "リビング" --output-dir ./enhanced/
 ```
 
 ## セットアップ
@@ -53,8 +53,8 @@ python exif_enhancer.py --batch ./videos/ --location "リビング" --output-dir
 ### 基本インストール
 ```bash
 # リポジトリをクローン
-git clone https://github.com/your-username/xiaomi-video-exif-enchanter.git
-cd xiaomi-video-exif-enchanter
+git clone https://github.com/your-username/xvee.git
+cd xvee
 
 # 基本的な依存関係をインストール
 pip install -r requirements.txt
@@ -79,8 +79,8 @@ pip install -e .[dev]
 
 ```bash
 # 1. プロジェクトをクローン
-git clone https://github.com/your-username/xiaomi-video-exif-enhancer.git
-cd xiaomi-video-exif-enchancer
+git clone https://github.com/your-username/xvee.git
+cd xvee
 
 # 2. 入力・出力ディレクトリを作成
 mkdir -p input output
@@ -116,13 +116,13 @@ docker-compose run --rm xiaomi-exif-enhancer --batch /app/input --output-dir /ap
 ### サンプル動画での基本テスト
 ```bash
 # サンプル動画で基本処理をテスト
-python exif_enhancer.py sample.mp4
+python exif_enchanter.py sample.mp4
 
 # デバッグモードでの詳細確認（推奨）
-python exif_enhancer.py sample.mp4 --debug
+python exif_enchanter.py sample.mp4 --debug
 
 # 撮影場所を指定してテスト
-python exif_enhancer.py sample.mp4 --location "テストルーム"
+python exif_enchanter.py sample.mp4 --location "テストルーム"
 
 # 期待される処理フロー（デバッグモード時）
 # ✓ Frame extracted successfully, shape: (360, 640, 3)
@@ -134,40 +134,40 @@ python exif_enhancer.py sample.mp4 --location "テストルーム"
 ### 単一ファイル処理
 ```bash
 # 基本的な処理（自動で出力ファイル名を生成）
-python exif_enhancer.py input.mp4
+python exif_enchanter.py input.mp4
 
 # 撮影場所を指定
-python exif_enhancer.py input.mp4 --location "リビング"
+python exif_enchanter.py input.mp4 --location "リビング"
 
 # 出力ファイル名を指定
-python exif_enhancer.py input.mp4 --output enhanced_video.mp4
+python exif_enchanter.py input.mp4 --output enhanced_video.mp4
 
 # 全オプションを指定
-python exif_enhancer.py input.mp4 --location "寝室" --output bedroom_video.mp4
+python exif_enchanter.py input.mp4 --location "寝室" --output bedroom_video.mp4
 
 # デバッグモードで詳細ログを確認
-python exif_enhancer.py input.mp4 --debug
+python exif_enchanter.py input.mp4 --debug
 ```
 
 ### バッチ処理（ディレクトリ一括処理）
 ```bash
 # ディレクトリ内のすべてのMP4ファイルを処理
-python exif_enhancer.py --batch /path/to/videos/
+python exif_enchanter.py --batch /path/to/videos/
 
 # 撮影場所を指定してバッチ処理
-python exif_enhancer.py --batch /path/to/videos/ --location "リビング"
+python exif_enchanter.py --batch /path/to/videos/ --location "リビング"
 
 # 出力ディレクトリを指定してバッチ処理
-python exif_enhancer.py --batch /path/to/videos/ --output-dir /path/to/output/
+python exif_enchanter.py --batch /path/to/videos/ --output-dir /path/to/output/
 
 # エラー時に処理を停止（デフォルトはスキップして継続）
-python exif_enhancer.py --batch /path/to/videos/ --no-skip-errors
+python exif_enchanter.py --batch /path/to/videos/ --no-skip-errors
 
 # 特定の拡張子のみ処理
-python exif_enhancer.py --batch /path/to/videos/ --extensions mp4 avi mov
+python exif_enchanter.py --batch /path/to/videos/ --extensions mp4 avi mov
 
 # バッチ処理のデバッグモード
-python exif_enhancer.py --batch /path/to/videos/ --location "寝室" --debug
+python exif_enchanter.py --batch /path/to/videos/ --location "寝室" --debug
 ```
 
 ### オプション
@@ -211,7 +211,7 @@ python exif_enhancer.py --batch /path/to/videos/ --location "寝室" --debug
 ### テスト実行
 ```bash
 # 基本的なユニットテスト
-python -m unittest test_exif_enhancer.py -v
+python -m unittest test_exif_enchanter.py -v
 
 # サンプル動画を使用した統合テスト
 python test_sample_video.py -v
@@ -247,5 +247,5 @@ sample.mp4を使用した実測値：
 #### デバッグ情報の確認
 ```bash
 # 詳細なログとエラー情報を表示
-python exif_enhancer.py sample.mp4 --debug
+python exif_enchanter.py sample.mp4 --debug
 ```

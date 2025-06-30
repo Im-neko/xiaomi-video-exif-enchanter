@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestCreationTimeEmbedding(unittest.TestCase):
@@ -17,7 +17,7 @@ class TestCreationTimeEmbedding(unittest.TestCase):
     
     def setUp(self):
         """テストセットアップ"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=True)
         self.temp_dir = tempfile.mkdtemp()
         
         # テスト用ファイルのパス
@@ -215,7 +215,7 @@ def test_creation_time_embedding():
     print("Testing Creation Time Embedding - Issue #9")
     print("=" * 60)
     
-    enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+    enhancer = XiaomiVideoExifEnchanter(debug=True)
     
     # 基本的な機能確認
     print("\n1. Testing basic timestamp formatting...")

@@ -9,7 +9,7 @@ import tempfile
 import os
 import shutil
 from pathlib import Path
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestBatchProcessing(unittest.TestCase):
@@ -18,7 +18,7 @@ class TestBatchProcessing(unittest.TestCase):
     def setUp(self):
         """テストセットアップ"""
         self.test_dir = tempfile.mkdtemp()
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # テスト用の模擬MP4ファイルを作成
         self.create_mock_video_files()
@@ -231,7 +231,7 @@ class TestBatchIntegration(unittest.TestCase):
     def setUp(self):
         """統合テスト用のセットアップ"""
         self.test_dir = tempfile.mkdtemp()
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=True)
     
     def tearDown(self):
         """統合テストのクリーンアップ"""

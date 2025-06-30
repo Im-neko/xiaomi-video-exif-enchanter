@@ -113,16 +113,16 @@ def test_basic_imports():
             print(f"⚠ ProgressManager import failed: {e}")
         
         # メインクラスのテスト（tqdm関連を除く）
-        print("Testing XiaomiVideoExifEnhancer class...")
+        print("Testing XiaomiVideoExifEnchanter class...")
         
         # tqdm を一時的に無効化してテスト
         sys.modules['tqdm'] = type(sys)('mock_tqdm')
         sys.modules['tqdm'].tqdm = lambda x, **kwargs: x
         
         try:
-            from exif_enhancer import XiaomiVideoExifEnhancer
-            enhancer = XiaomiVideoExifEnhancer(debug=True)
-            print("✅ XiaomiVideoExifEnhancer created successfully")
+            from exif_enchanter import XiaomiVideoExifEnchanter
+            enhancer = XiaomiVideoExifEnchanter(debug=True)
+            print("✅ XiaomiVideoExifEnchanter created successfully")
             
             # OCR言語設定のテスト
             languages = enhancer.get_ocr_languages()
@@ -130,7 +130,7 @@ def test_basic_imports():
             
             return True
         except Exception as e:
-            print(f"❌ XiaomiVideoExifEnhancer error: {e}")
+            print(f"❌ XiaomiVideoExifEnchanter error: {e}")
             return False
             
     except Exception as e:

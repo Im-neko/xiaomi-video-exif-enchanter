@@ -82,19 +82,22 @@ class EasyOCRSingleton:
         cls._config = None
 
 
-class XiaomiVideoExifEnhancer:
+class XiaomiVideoExifEnchanter:
     """Xiaomi動画のEXIF情報を拡張するメインクラス"""
     
-    def __init__(self, debug: bool = False, languages: List[str] = None, use_gpu: bool = None) -> None:
+    def __init__(self, debug: bool = False, languages: List[str] = None, use_gpu: bool = None, 
+                 enhanced_ocr: bool = True) -> None:
         """
         Args:
             debug: デバッグモードの有効化
             languages: OCRで使用する言語リスト
             use_gpu: GPU使用フラグ
+            enhanced_ocr: 改良版OCRの使用（複数前処理・複数エンジン）
         """
         self.debug = debug
         self.languages = languages if languages else ['en', 'ja']
         self.use_gpu = use_gpu if use_gpu is not None else False
+        self.enhanced_ocr = enhanced_ocr
         self.confidence_threshold = 0.5
         
         # エラーハンドラーの初期化
@@ -311,8 +314,15 @@ class XiaomiVideoExifEnhancer:
         else:
             return 0.18
     
-    def extract_timestamp(self, cropped_frame: np.ndarray) -> Optional[str]:
-        """クロップされたフレームからタイムスタンプを抽出"""
+    def extract_timestamp(self, cropped_frame: np.ndarray, input_path: str = None) -> Optional[str]:
+        """クロップされたフレームからタイムスタンプを抽出（改良版）"""
+        # 改良版OCRが有効な場合は試行
+        if self.enhanced_ocr:
+            enhanced_result = self._enhanced_extract_timestamp(cropped_frame, input_path)
+            if enhanced_result:
+                return enhanced_result
+        
+        # フォールバック: オリジナルの基本版OCR
         try:
             reader = EasyOCRSingleton.get_reader(self.languages, self.use_gpu, self.debug)
             results = reader.readtext(cropped_frame)
@@ -376,13 +386,341 @@ class XiaomiVideoExifEnhancer:
                 'ocr_count': 0
             }
     
+    def _enhanced_extract_timestamp(self, cropped_frame: np.ndarray, input_path: str = None) -> Optional[str]:
+        """改良版タイムスタンプ抽出（複数の前処理と複数回試行）"""
+        if self.debug:
+            print("Starting enhanced OCR extraction...")
+        
+        # 複数の前処理バリエーションを生成
+        processed_images = self._generate_image_variants(cropped_frame)
+        
+        # デバッグ時は前処理した画像も保存
+        if self.debug and input_path:
+            self._save_debug_variants(processed_images, input_path)
+        
+        # 各画像バリエーションでOCRを実行
+        all_results = []
+        
+        for i, (variant_name, image) in enumerate(processed_images):
+            if self.debug:
+                print(f"  Trying variant {i+1}/{len(processed_images)}: {variant_name}")
+            
+            # EasyOCRで試行
+            easyocr_result = self._try_easyocr(image, variant_name)
+            if easyocr_result:
+                all_results.append(('EasyOCR', variant_name, easyocr_result))
+            
+            # Tesseractで試行（利用可能な場合）
+            tesseract_result = self._try_tesseract(image, variant_name)
+            if tesseract_result:
+                all_results.append(('Tesseract', variant_name, tesseract_result))
+        
+        # 最適な結果を選択
+        best_result = self._select_best_ocr_result(all_results)
+        
+        if self.debug and best_result:
+            print(f"Enhanced OCR selected: '{best_result['text']}' from {best_result['engine']} ({best_result['variant']}) with confidence {best_result['confidence']:.3f}")
+        
+        return best_result['text'] if best_result else None
+    
+    def _generate_image_variants(self, image: np.ndarray) -> List[Tuple[str, np.ndarray]]:
+        """画像の複数のバリエーションを生成"""
+        variants = []
+        
+        # オリジナル
+        variants.append(("original", image.copy()))
+        
+        # 2倍拡大
+        height, width = image.shape[:2]
+        enlarged_2x = cv2.resize(image, (width * 2, height * 2), interpolation=cv2.INTER_CUBIC)
+        variants.append(("enlarged_2x", enlarged_2x))
+        
+        # 3倍拡大
+        enlarged_3x = cv2.resize(image, (width * 3, height * 3), interpolation=cv2.INTER_CUBIC)
+        variants.append(("enlarged_3x", enlarged_3x))
+        
+        # コントラスト調整
+        contrast_enhanced = self._enhance_contrast(image)
+        variants.append(("contrast_enhanced", contrast_enhanced))
+        
+        # 二値化処理
+        binary = self._apply_binary_threshold(image)
+        variants.append(("binary", binary))
+        
+        # アダプティブ二値化
+        adaptive_binary = self._apply_adaptive_threshold(image)
+        variants.append(("adaptive_binary", adaptive_binary))
+        
+        # シャープ化
+        sharpened = self._apply_sharpening(image)
+        variants.append(("sharpened", sharpened))
+        
+        # ノイズ除去
+        denoised = self._apply_denoising(image)
+        variants.append(("denoised", denoised))
+        
+        # 拡大 + コントラスト
+        enlarged_contrast = self._enhance_contrast(enlarged_2x)
+        variants.append(("enlarged_2x_contrast", enlarged_contrast))
+        
+        # 拡大 + 二値化
+        enlarged_binary = self._apply_binary_threshold(enlarged_2x)
+        variants.append(("enlarged_2x_binary", enlarged_binary))
+        
+        # 余白付きバリエーション
+        padded_uniform_10 = self._apply_uniform_padding(image, 10)
+        variants.append(("padded_uniform_10", padded_uniform_10))
+        
+        padded_uniform_20 = self._apply_uniform_padding(image, 20)
+        variants.append(("padded_uniform_20", padded_uniform_20))
+        
+        padded_adaptive = self._apply_adaptive_padding(image)
+        variants.append(("padded_adaptive", padded_adaptive))
+        
+        # 拡大 + 余白の組み合わせ
+        padded_enlarged_2x = self._apply_uniform_padding(enlarged_2x, 30)
+        variants.append(("padded_enlarged_2x", padded_enlarged_2x))
+        
+        # 余白 + コントラスト強化
+        padded_contrast = self._enhance_contrast(padded_uniform_20)
+        variants.append(("padded_contrast", padded_contrast))
+        
+        return variants
+    
+    def _enhance_contrast(self, image: np.ndarray) -> np.ndarray:
+        """コントラスト強化"""
+        # CLAHEを使用
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(gray)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+        return enhanced
+    
+    def _apply_binary_threshold(self, image: np.ndarray) -> np.ndarray:
+        """二値化処理"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # Otsuの方法で二値化
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+        return binary
+    
+    def _apply_uniform_padding(self, image: np.ndarray, padding_size: int, 
+                              color: Tuple[int, int, int] = (255, 255, 255)) -> np.ndarray:
+        """画像に均一な余白を追加"""
+        if len(image.shape) == 3:
+            # カラー画像の場合
+            return cv2.copyMakeBorder(image, padding_size, padding_size, 
+                                    padding_size, padding_size, 
+                                    cv2.BORDER_CONSTANT, value=color)
+        else:
+            # グレースケール画像の場合
+            return cv2.copyMakeBorder(image, padding_size, padding_size, 
+                                    padding_size, padding_size, 
+                                    cv2.BORDER_CONSTANT, value=color[0])
+    
+    def _apply_adaptive_padding(self, image: np.ndarray) -> np.ndarray:
+        """画像内容に応じた適応的な余白を追加"""
+        height, width = image.shape[:2]
+        
+        # 画像サイズに基づいて余白サイズを決定
+        base_padding = max(10, min(width, height) // 20)
+        
+        # エッジ検出で境界を分析
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        # エッジ密度に基づいて余白を調整
+        edges = cv2.Canny(gray, 50, 150)
+        
+        # 各辺のエッジ密度を計算
+        top_edges = np.sum(edges[:5, :]) / (5 * width)
+        bottom_edges = np.sum(edges[-5:, :]) / (5 * width)
+        left_edges = np.sum(edges[:, :5]) / (height * 5)
+        right_edges = np.sum(edges[:, -5:]) / (height * 5)
+        
+        # エッジ密度が高い場合はより多くの余白を追加
+        top_padding = base_padding + int(top_edges * 15)
+        bottom_padding = base_padding + int(bottom_edges * 15)
+        left_padding = base_padding + int(left_edges * 15)
+        right_padding = base_padding + int(right_edges * 15)
+        
+        # 余白を追加
+        if len(image.shape) == 3:
+            return cv2.copyMakeBorder(image, top_padding, bottom_padding, 
+                                    left_padding, right_padding, 
+                                    cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        else:
+            return cv2.copyMakeBorder(image, top_padding, bottom_padding, 
+                                    left_padding, right_padding, 
+                                    cv2.BORDER_CONSTANT, value=255)
+    
+    def _apply_adaptive_threshold(self, image: np.ndarray) -> np.ndarray:
+        """アダプティブ二値化"""
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image
+        
+        adaptive = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                       cv2.THRESH_BINARY, 11, 2)
+        
+        if len(image.shape) == 3:
+            return cv2.cvtColor(adaptive, cv2.COLOR_GRAY2BGR)
+        return adaptive
+    
+    def _apply_sharpening(self, image: np.ndarray) -> np.ndarray:
+        """シャープ化フィルタ"""
+        kernel = np.array([[-1,-1,-1],
+                          [-1, 9,-1],
+                          [-1,-1,-1]])
+        sharpened = cv2.filter2D(image, -1, kernel)
+        return sharpened
+    
+    def _apply_denoising(self, image: np.ndarray) -> np.ndarray:
+        """ノイズ除去"""
+        if len(image.shape) == 3:
+            return cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
+        else:
+            return cv2.fastNlMeansDenoising(image, None, 10, 7, 21)
+    
+    def _try_easyocr(self, image: np.ndarray, variant_name: str) -> Optional[Dict[str, Any]]:
+        """EasyOCRでOCRを試行"""
+        try:
+            reader = EasyOCRSingleton.get_reader(self.languages, self.use_gpu, self.debug)
+            results = reader.readtext(image)
+            
+            if not results:
+                return None
+            
+            # 最適な結果を選択
+            best_match = self._find_best_timestamp_match(results)
+            if best_match:
+                # 信頼度を取得
+                confidence = max([r[2] for r in results if r[1] == best_match], default=0)
+                return {
+                    'text': best_match,
+                    'confidence': confidence,
+                    'variant': variant_name,
+                    'engine': 'EasyOCR'
+                }
+            
+            return None
+            
+        except Exception as e:
+            if self.debug:
+                print(f"EasyOCR error on {variant_name}: {e}")
+            return None
+    
+    def _try_tesseract(self, image: np.ndarray, variant_name: str) -> Optional[Dict[str, Any]]:
+        """TesseractでOCRを試行（利用可能な場合）"""
+        try:
+            import pytesseract
+            
+            # Tesseractの設定
+            config = '--oem 3 --psm 8 -c tessedit_char_whitelist=0123456789/:.-@ '
+            
+            # OCR実行
+            text = pytesseract.image_to_string(image, config=config).strip()
+            
+            if not text:
+                return None
+            
+            # タイムスタンプパターンマッチング
+            for pattern in TIMESTAMP_PATTERNS:
+                if re.search(pattern, text):
+                    # Tesseractの信頼度を取得（簡易版）
+                    confidence = 0.7  # Tesseractの基本信頼度
+                    return {
+                        'text': text,
+                        'confidence': confidence,
+                        'variant': variant_name,
+                        'engine': 'Tesseract'
+                    }
+            
+            return None
+            
+        except ImportError:
+            if self.debug:
+                print("Tesseract not available (pytesseract not installed)")
+            return None
+        except Exception as e:
+            if self.debug:
+                print(f"Tesseract error on {variant_name}: {e}")
+            return None
+    
+    def _select_best_ocr_result(self, all_results: List[Tuple]) -> Optional[Dict[str, Any]]:
+        """全OCR結果から最適なものを選択"""
+        if not all_results:
+            return None
+        
+        # 信頼度とエンジンの重み付けでスコア計算
+        scored_results = []
+        
+        for engine, variant, result in all_results:
+            score = result['confidence']
+            
+            # エンジンによる重み付け
+            if engine == 'EasyOCR':
+                score *= 1.0  # EasyOCRは基準
+            elif engine == 'Tesseract':
+                score *= 0.9  # Tesseractは少し低め
+            
+            # バリエーションによる重み付け
+            if 'enlarged' in variant:
+                score *= 1.1  # 拡大画像は重視
+            if 'contrast' in variant:
+                score *= 1.05  # コントラスト強化も重視
+            if 'binary' in variant:
+                score *= 1.02  # 二値化も軽く重視
+            
+            scored_results.append((score, result))
+        
+        # 最高スコアの結果を選択
+        best_score, best_result = max(scored_results, key=lambda x: x[0])
+        
+        # 最低閾値チェック
+        if best_score < 0.3:  # 改良版は閾値を下げる
+            return None
+        
+        return best_result
+    
+    def _save_debug_variants(self, processed_images: List[Tuple[str, np.ndarray]], input_path: str) -> None:
+        """デバッグ用に前処理した画像バリエーションを保存"""
+        try:
+            base_name = os.path.splitext(os.path.basename(input_path))[0]
+            
+            for variant_name, image in processed_images:
+                debug_filename = f"debug_{base_name}_{variant_name}.jpg"
+                cv2.imwrite(debug_filename, image)
+                
+            if self.debug:
+                print(f"Saved {len(processed_images)} debug variants for {base_name}")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"Could not save debug variants: {e}")
+    
     def test_ocr_performance(self, cropped_frame: np.ndarray, iterations: int = 5) -> Dict[str, float]:
         """OCR性能をテスト"""
         times = []
         
         for _ in range(iterations):
             start_time = time.time()
-            self.extract_timestamp(cropped_frame)
+            self.extract_timestamp(cropped_frame, None)
             end_time = time.time()
             times.append(end_time - start_time)
         
@@ -547,6 +885,38 @@ class XiaomiVideoExifEnhancer:
         file_manager = FileManager(debug=self.debug)
         file_manager.move_to_failed_folder(input_path, reason, output_dir)
     
+    def _save_crop_to_failed_folder(self, cropped_frame: np.ndarray, input_path: str, 
+                                   output_dir: Optional[str] = None) -> None:
+        """cropした画像をfailedフォルダに保存"""
+        try:
+            if output_dir is None:
+                output_dir = os.path.dirname(input_path)
+                
+            failed_dir = os.path.join(output_dir, "failed")
+            os.makedirs(failed_dir, exist_ok=True)
+            
+            # 元のファイル名をベースにクロップ画像のファイル名を生成
+            base_name = os.path.splitext(os.path.basename(input_path))[0]
+            crop_filename = f"crop_{base_name}.jpg"
+            crop_path = os.path.join(failed_dir, crop_filename)
+            
+            # 重複回避
+            counter = 1
+            while os.path.exists(crop_path):
+                crop_filename = f"crop_{base_name}_{counter}.jpg"
+                crop_path = os.path.join(failed_dir, crop_filename)
+                counter += 1
+            
+            # クロップ画像を保存
+            cv2.imwrite(crop_path, cropped_frame)
+            
+            if self.debug:
+                print(f"Cropped image saved to failed folder: {crop_path}")
+                
+        except Exception as e:
+            if self.debug:
+                print(f"Could not save cropped image to failed folder: {e}")
+    
     def process_video(self, input_path: str, output_path: str, 
                      location: Optional[str] = None) -> bool:
         """単一の動画ファイルを処理"""
@@ -590,11 +960,14 @@ class XiaomiVideoExifEnhancer:
             # タイムスタンプ領域をクロップ
             cropped_frame = self.crop_timestamp_area(frame)
             
+            # クロップした画像のファイル名を生成
+            crop_filename = f"crop_{os.path.basename(input_path)}.jpg"
+            
             if self.debug:
-                self.save_cropped_area(cropped_frame, f"crop_{os.path.basename(input_path)}.jpg")
+                self.save_cropped_area(cropped_frame, crop_filename)
             
             # タイムスタンプを抽出
-            timestamp_str = self.extract_timestamp(cropped_frame)
+            timestamp_str = self.extract_timestamp(cropped_frame, input_path)
             
             if not timestamp_str:
                 error_msg = f"Could not extract timestamp from video: {input_path}"
@@ -603,6 +976,8 @@ class XiaomiVideoExifEnhancer:
                     self.error_handler.log_error(VideoErrorType.OCR_FAILED, input_path, error_msg)
                     # 失敗したファイルを移動
                     self._move_to_failed_folder(input_path, "OCR failed", os.path.dirname(output_path))
+                    # cropした画像もfailedフォルダに保存
+                    self._save_crop_to_failed_folder(cropped_frame, input_path, os.path.dirname(output_path))
                 return False
             
             # タイムスタンプを解析
@@ -615,6 +990,8 @@ class XiaomiVideoExifEnhancer:
                     self.error_handler.log_error(VideoErrorType.TIMESTAMP_PARSE_FAILED, input_path, error_msg)
                     # 失敗したファイルを移動
                     self._move_to_failed_folder(input_path, f"Timestamp parse failed: {timestamp_str}", os.path.dirname(output_path))
+                    # cropした画像もfailedフォルダに保存
+                    self._save_crop_to_failed_folder(cropped_frame, input_path, os.path.dirname(output_path))
                 return False
             
             if self.debug:
@@ -631,6 +1008,8 @@ class XiaomiVideoExifEnhancer:
                     self.error_handler.log_error(VideoErrorType.FFMPEG_ERROR, input_path, error_msg)
                     # 失敗したファイルを移動
                     self._move_to_failed_folder(input_path, "EXIF embedding failed", os.path.dirname(output_path))
+                    # cropした画像もfailedフォルダに保存
+                    self._save_crop_to_failed_folder(cropped_frame, input_path, os.path.dirname(output_path))
                 return False
             
             if self.debug:
@@ -650,6 +1029,13 @@ class XiaomiVideoExifEnhancer:
                 # 失敗したファイルを移動
                 try:
                     self._move_to_failed_folder(input_path, f"Unexpected error: {str(e)}", os.path.dirname(output_path))
+                    # cropした画像がある場合はfailedフォルダに保存を試行
+                    try:
+                        if 'cropped_frame' in locals():
+                            self._save_crop_to_failed_folder(cropped_frame, input_path, os.path.dirname(output_path))
+                    except Exception as crop_error:
+                        if self.debug:
+                            print(f"Could not save cropped image to failed folder: {crop_error}")
                 except Exception as move_error:
                     if self.debug:
                         print(f"Could not move failed file: {move_error}")
@@ -662,7 +1048,7 @@ def process_single_video_worker(input_path: str, output_path: str, location: Opt
     """並列処理用のワーカー関数（プロセスプール用）"""
     try:
         # 各プロセスで独立したEnhancerインスタンスを作成
-        enhancer = XiaomiVideoExifEnhancer(debug=debug, languages=languages, use_gpu=use_gpu)
+        enhancer = XiaomiVideoExifEnchanter(debug=debug, languages=languages, use_gpu=use_gpu)
         
         # 動画を処理
         success = enhancer.process_video(input_path, output_path, location)
@@ -690,14 +1076,16 @@ def main() -> None:
     parser.add_argument('--use-threading', action='store_true', help='Use threading instead of multiprocessing')
     parser.add_argument('--batch-size', type=int, help='Batch size for processing')
     parser.add_argument('--skip-errors', action='store_true', default=True, help='Skip files with errors')
+    parser.add_argument('--disable-enhanced-ocr', action='store_true', help='Disable enhanced OCR (use basic OCR only)')
     
     args = parser.parse_args()
     
     # Enhancerインスタンスを作成
-    enhancer = XiaomiVideoExifEnhancer(
+    enhancer = XiaomiVideoExifEnchanter(
         debug=args.debug,
         languages=args.languages,
-        use_gpu=args.gpu
+        use_gpu=args.gpu,
+        enhanced_ocr=not args.disable_enhanced_ocr
     )
     
     # 信頼度閾値を設定

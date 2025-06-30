@@ -21,7 +21,7 @@ def run_safe_batch_processing(input_dir: str, batch_size: int = 100, location: s
     
     # 基本コマンド
     cmd = [
-        'python3', 'exif_enhancer.py',
+        'python3', 'exif_enchanter.py',
         '--batch', input_dir,
         '--batch-size', str(batch_size),
         '--disable-parallel',  # 安全のため並列処理を無効化

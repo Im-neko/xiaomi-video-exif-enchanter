@@ -11,7 +11,7 @@ Xiaomi Video EXIF EnhancerをDockerコンテナで簡単に実行できます。
 ### 2. プロジェクトの準備
 ```bash
 # プロジェクトディレクトリに移動
-cd xiaomi-video-exif-enchanter
+cd xvee
 
 # 入力・出力ディレクトリを作成
 mkdir -p input output
@@ -113,7 +113,7 @@ docker-compose run --rm xiaomi-exif-enhancer \
 docker-compose run --rm xiaomi-exif-enhancer bash
 
 # コンテナ内で直接コマンド実行
-python exif_enhancer.py --help
+python exif_enchanter.py --help
 python test_batch_processing.py
 ```
 

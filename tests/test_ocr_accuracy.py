@@ -12,7 +12,7 @@ import numpy as np
 from unittest.mock import patch
 import time
 
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestOCRAccuracyAnalysis(unittest.TestCase):
@@ -33,7 +33,7 @@ class TestOCRAccuracyAnalysis(unittest.TestCase):
     def setUp(self):
         """各テスト前の準備"""
         try:
-            self.enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+            self.enhancer = XiaomiVideoExifEnchanter(debug=True)
         except Exception as e:
             self.skipTest(f"Failed to initialize EasyOCR: {e}")
     
@@ -254,7 +254,7 @@ class TestOCRPerformanceMetrics(unittest.TestCase):
             self.skipTest(f"Sample video not found: {self.SAMPLE_VIDEO_PATH}")
         
         try:
-            self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)  # パフォーマンス測定ではデバッグ無効
+            self.enhancer = XiaomiVideoExifEnchanter(debug=False)  # パフォーマンス測定ではデバッグ無効
         except Exception as e:
             self.skipTest(f"Failed to initialize EasyOCR: {e}")
     

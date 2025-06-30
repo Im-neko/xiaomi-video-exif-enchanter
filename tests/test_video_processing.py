@@ -11,11 +11,11 @@ def test_video_processing():
     """動画処理のテスト"""
     
     try:
-        from exif_enhancer import XiaomiVideoExifEnhancer
+        from exif_enchanter import XiaomiVideoExifEnchanter
         
         # デバッグモードでEnhancerを作成
-        enhancer = XiaomiVideoExifEnhancer(debug=True)
-        print("✅ XiaomiVideoExifEnhancer created successfully")
+        enhancer = XiaomiVideoExifEnchanter(debug=True)
+        print("✅ XiaomiVideoExifEnchanter created successfully")
         
         # テスト用動画ファイルを探す
         input_dir = "input"
@@ -93,9 +93,9 @@ def test_batch_processing():
     """バッチ処理のテスト"""
     
     try:
-        from exif_enhancer import XiaomiVideoExifEnhancer
+        from exif_enchanter import XiaomiVideoExifEnchanter
         
-        enhancer = XiaomiVideoExifEnhancer(debug=True)
+        enhancer = XiaomiVideoExifEnchanter(debug=True)
         print("✅ Testing batch processing...")
         
         # 入力ディレクトリの確認

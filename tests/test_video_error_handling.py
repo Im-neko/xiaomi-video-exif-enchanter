@@ -9,7 +9,7 @@ import os
 import tempfile
 import stat
 from pathlib import Path
-from exif_enhancer import XiaomiVideoEXIFEnhancer, SUPPORTED_VIDEO_EXTENSIONS
+from exif_enchanter import XiaomiVideoExifEnchanter, SUPPORTED_VIDEO_EXTENSIONS
 from video_error_handler import VideoErrorHandler, VideoErrorType
 
 
@@ -18,7 +18,7 @@ class TestVideoErrorHandling(unittest.TestCase):
     
     def setUp(self):
         """テストセットアップ"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        self.enhancer = XiaomiVideoExifEnchanter(debug=True)
         self.error_handler = VideoErrorHandler(debug=True)
         self.temp_dir = tempfile.mkdtemp()
         
@@ -211,7 +211,7 @@ class TestVideoErrorIntegration(unittest.TestCase):
     
     def setUp(self):
         """テストセットアップ"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False)  # 非デバッグモードでテスト
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False)  # 非デバッグモードでテスト
     
     def test_error_handling_in_non_debug_mode(self):
         """非デバッグモードでのエラーハンドリング"""
@@ -235,7 +235,7 @@ class TestVideoErrorIntegration(unittest.TestCase):
     def test_error_handling_graceful_degradation(self):
         """エラーハンドリングの段階的劣化テスト"""
         # エラーハンドラーが利用できない場合でも基本的な動作は継続することを確認
-        enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+        enhancer = XiaomiVideoExifEnchanter(debug=True)
         
         # error_handlerを一時的に無効化
         original_error_handler = enhancer.error_handler

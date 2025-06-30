@@ -9,7 +9,7 @@ import numpy as np
 import os
 import tempfile
 import time
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestEasyOCRInitialization(unittest.TestCase):
@@ -17,7 +17,7 @@ class TestEasyOCRInitialization(unittest.TestCase):
     
     def test_default_initialization(self):
         """デフォルト設定での初期化テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False)
+        enhancer = XiaomiVideoExifEnchanter(debug=False)
         
         # 初期化確認
         self.assertIsNotNone(enhancer.reader)
@@ -26,7 +26,7 @@ class TestEasyOCRInitialization(unittest.TestCase):
     
     def test_english_only_initialization(self):
         """英語のみでの初期化テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=['en'])
+        enhancer = XiaomiVideoExifEnchanter(debug=False, languages=['en'])
         
         self.assertEqual(enhancer.languages, ['en'])
         self.assertIsNotNone(enhancer.reader)
@@ -35,14 +35,14 @@ class TestEasyOCRInitialization(unittest.TestCase):
         """複数言語での初期化テスト"""
         # 互換性のある言語組み合わせを使用
         languages = ['en', 'ja']
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=languages)
+        enhancer = XiaomiVideoExifEnchanter(debug=False, languages=languages)
         
         self.assertEqual(enhancer.languages, languages)
         self.assertIsNotNone(enhancer.reader)
     
     def test_debug_initialization(self):
         """デバッグモードでの初期化テスト"""
-        enhancer = XiaomiVideoEXIFEnhancer(debug=True, languages=['en'])
+        enhancer = XiaomiVideoExifEnchanter(debug=True, languages=['en'])
         
         self.assertTrue(enhancer.debug)
         self.assertIsNotNone(enhancer.reader)
@@ -50,7 +50,7 @@ class TestEasyOCRInitialization(unittest.TestCase):
     def test_get_ocr_languages(self):
         """OCR言語取得テスト"""
         languages = ['en', 'ja']
-        enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=languages)
+        enhancer = XiaomiVideoExifEnchanter(debug=False, languages=languages)
         
         retrieved_languages = enhancer.get_ocr_languages()
         self.assertEqual(retrieved_languages, languages)
@@ -65,7 +65,7 @@ class TestConfidenceThreshold(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=['en'])
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False, languages=['en'])
     
     def test_set_valid_confidence_threshold(self):
         """有効な信頼度閾値設定テスト"""
@@ -91,7 +91,7 @@ class TestBasicOCRFunctionality(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=['en'])
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False, languages=['en'])
         self.sample_video = "sample.mp4"
         
         # テスト用の画像を作成（白背景に黒文字）
@@ -184,7 +184,7 @@ class TestOCRPerformanceMeasurement(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=['en'])
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False, languages=['en'])
         self.test_image = np.ones((100, 200, 3), dtype=np.uint8) * 255
     
     def test_ocr_performance_measurement(self):
@@ -220,7 +220,7 @@ class TestOCRWithSampleVideo(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=['en'])
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False, languages=['en'])
         self.sample_video = "sample.mp4"
     
     def test_extract_timestamp_from_sample_video(self):
@@ -273,7 +273,7 @@ class TestOCRErrorHandling(unittest.TestCase):
     
     def setUp(self):
         """テスト前の準備"""
-        self.enhancer = XiaomiVideoEXIFEnhancer(debug=False, languages=['en'])
+        self.enhancer = XiaomiVideoExifEnchanter(debug=False, languages=['en'])
     
     def test_extract_timestamp_with_invalid_image(self):
         """無効な画像でのタイムスタンプ抽出テスト"""

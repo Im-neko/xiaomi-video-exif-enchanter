@@ -24,6 +24,11 @@ class VideoErrorType(Enum):
     CODEC_ERROR = "codec_error"
     NETWORK_ERROR = "network_error"
     OCR_FAILED = "ocr_failed"
+    INVALID_FILE = "invalid_file"
+    INVALID_OUTPUT = "invalid_output"
+    TIMESTAMP_PARSE_FAILED = "timestamp_parse_failed"
+    FFMPEG_ERROR = "ffmpeg_error"
+    UNEXPECTED_ERROR = "unexpected_error"
     UNKNOWN_ERROR = "unknown_error"
 
 

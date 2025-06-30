@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: xiaomi-video-exif-enhancer:latest
+    image: xiaomi-tesseract:latest
     container_name: xiaomi-exif-enhancer
     
     # ボリュームマッピング（ホストのディレクトリをコンテナにマウント）
@@ -41,7 +41,7 @@ services:
     
     # ヘルスチェック
     healthcheck:
-      test: ["CMD", "python", "-c", "from exif_enhancer import XiaomiVideoEXIFEnhancer; print('OK')"]
+      test: ["CMD", "python", "-c", "from exif_enchanter import XiaomiVideoExifEnchanter; print('OK')"]
       interval: 30s
       timeout: 10s
       retries: 3

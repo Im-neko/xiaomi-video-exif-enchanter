@@ -13,7 +13,7 @@ import tempfile
 import cv2
 import numpy as np
 
-from exif_enhancer import XiaomiVideoEXIFEnhancer
+from exif_enchanter import XiaomiVideoExifEnchanter
 
 
 class TestSampleVideoIntegration(unittest.TestCase):
@@ -43,7 +43,7 @@ class TestSampleVideoIntegration(unittest.TestCase):
         """遅延初期化でEnhancerを取得"""
         if self.enhancer is None:
             try:
-                self.enhancer = XiaomiVideoEXIFEnhancer(debug=True)
+                self.enhancer = XiaomiVideoExifEnchanter(debug=True)
             except Exception as e:
                 self.skipTest(f"Failed to initialize EasyOCR: {e}")
         return self.enhancer
@@ -198,7 +198,7 @@ class TestSampleVideoTimestampRegex(unittest.TestCase):
         """テスト準備"""
         # EasyOCRをモックして高速化
         with patch('easyocr.Reader'):
-            self.enhancer = XiaomiVideoEXIFEnhancer()
+            self.enhancer = XiaomiVideoExifEnchanter()
     
     def test_sample_timestamp_formats(self):
         """サンプル動画で実際に検出される形式のテスト"""
@@ -260,7 +260,7 @@ class TestSampleVideoPerformance(unittest.TestCase):
         import time
         
         with patch('easyocr.Reader'):
-            enhancer = XiaomiVideoEXIFEnhancer()
+            enhancer = XiaomiVideoExifEnchanter()
         
         start_time = time.time()
         frame = enhancer.extract_first_frame(self.SAMPLE_VIDEO_PATH)
@@ -280,7 +280,7 @@ class TestSampleVideoPerformance(unittest.TestCase):
         import time
         
         with patch('easyocr.Reader'):
-            enhancer = XiaomiVideoEXIFEnhancer()
+            enhancer = XiaomiVideoExifEnchanter()
         
         frame = enhancer.extract_first_frame(self.SAMPLE_VIDEO_PATH)
         

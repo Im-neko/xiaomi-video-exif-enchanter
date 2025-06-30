@@ -16,21 +16,22 @@ from file_manager import FileManager, create_results_dict
 
 
 def process_single_video_worker(input_path: str, output_path: str, location: Optional[str],
-                               languages: List[str], use_gpu: bool, debug: bool) -> bool:
+                               languages: List[str], use_gpu: bool, debug: bool, enhanced_ocr: bool = True) -> bool:
     """並列処理用のワーカー関数（プロセスプール用）"""
     try:
         # 動的インポートで循環インポートを回避
         import sys
         import importlib
         
-        # exif_enhancerモジュールを動的にインポート
-        if 'exif_enhancer' in sys.modules:
-            exif_enhancer = sys.modules['exif_enhancer']
+        # exif_enchanter モジュールを動的にインポート
+        if 'exif_enchanter' in sys.modules:
+            exif_enchanter = sys.modules['exif_enchanter']
         else:
-            exif_enhancer = importlib.import_module('exif_enhancer')
+            exif_enchanter = importlib.import_module('exif_enchanter')
         
         # 各プロセスで独立したEnhancerインスタンスを作成
-        enhancer = exif_enhancer.XiaomiVideoExifEnhancer(debug=debug, languages=languages, use_gpu=use_gpu)
+        enhancer = exif_enchanter.XiaomiVideoExifEnchanter(debug=debug, languages=languages, 
+                                                        use_gpu=use_gpu, enhanced_ocr=enhanced_ocr)
         
         # 動画を処理
         success = enhancer.process_video(input_path, output_path, location)
@@ -290,7 +291,8 @@ class BatchProcessor:
                             # プロセスプール: 各プロセスで独立したリーダー初期化
                             future = executor.submit(process_single_video_worker, 
                                                     input_file, output_file, location, 
-                                                    self.enhancer.languages, self.enhancer.use_gpu, self.debug)
+                                                    self.enhancer.languages, self.enhancer.use_gpu, self.debug,
+                                                    self.enhancer.enhanced_ocr)
                         
                         future_to_file[future] = (input_file, output_file)
                         

@@ -59,7 +59,7 @@ services:
           memory: 1G
           cpus: '0.5'
     restart: unless-stopped
-    entrypoint: ["python", "exif_enhancer.py"]
+    entrypoint: ["python", "exif_enchanter.py"]
     command: [
       "--batch", "/app/input",
       "--batch-size", "20",
@@ -72,7 +72,7 @@ services:
     extends: xiaomi-exif-enhancer
     container_name: xiaomi-medium-batch
     profiles: ["medium-batch"]
-    entrypoint: ["python", "exif_enhancer.py"]
+    entrypoint: ["python", "exif_enchanter.py"]
     command: [
       "--batch", "/app/input",
       "--batch-size", "50",
@@ -85,7 +85,7 @@ services:
     extends: xiaomi-exif-enhancer
     container_name: xiaomi-large-batch
     profiles: ["large-batch"]
-    entrypoint: ["python", "exif_enhancer.py"]
+    entrypoint: ["python", "exif_enchanter.py"]
     deploy:
       resources:
         limits:
@@ -114,7 +114,7 @@ services:
     extends: xiaomi-exif-enhancer
     container_name: xiaomi-batch-location
     profiles: ["batch-location"]
-    entrypoint: ["python", "exif_enhancer.py"]
+    entrypoint: ["python", "exif_enchanter.py"]
     command: [
       "--batch", "/app/input",
       "--batch-size", "30",
@@ -128,7 +128,7 @@ services:
     extends: xiaomi-exif-enhancer
     container_name: xiaomi-batch-continue
     profiles: ["continue"]
-    entrypoint: ["python", "exif_enhancer.py"]
+    entrypoint: ["python", "exif_enchanter.py"]
     command: [
       "--batch", "/app/input",
       "--batch-size", "25",
