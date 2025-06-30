@@ -12,8 +12,10 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
-import tensorflow as tf
-from tensorflow import keras
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 import subprocess
 
@@ -117,23 +119,30 @@ class XiaomiTimestampDataExtractor:
         
         return images, labels
 
-class XiaomiTimestampCNN:
-    """Xiaomiタイムスタンプ認識用CNNモデル"""
+class TimestampDataset(Dataset):
+    """PyTorch Dataset for timestamp images and labels"""
     
-    def __init__(self, input_shape: Tuple[int, int] = (16, 64), debug: bool = False):
-        self.input_shape = input_shape
-        self.debug = debug
-        self.model = None
-        self.char_to_idx = self._build_char_mapping()
-        self.idx_to_char = {v: k for k, v in self.char_to_idx.items()}
-        self.max_length = 19  # "2025/07/01 12:34:56"
+    def __init__(self, images, labels, char_to_idx, max_length=19):
+        self.images = images
+        self.labels = labels
+        self.char_to_idx = char_to_idx
+        self.max_length = max_length
     
-    def _build_char_mapping(self) -> Dict[str, int]:
-        """文字とインデックスのマッピングを構築"""
-        chars = "0123456789/:. "
-        char_to_idx = {char: idx + 1 for idx, char in enumerate(chars)}
-        char_to_idx['<PAD>'] = 0  # パディング文字
-        return char_to_idx
+    def __len__(self):
+        return len(self.images)
+    
+    def __getitem__(self, idx):
+        image = self.images[idx]
+        label = self.labels[idx]
+        
+        # Convert image to tensor
+        image_tensor = torch.FloatTensor(image).unsqueeze(0)  # Add channel dimension
+        
+        # Encode label
+        encoded_label = self.encode_text(label)
+        label_tensor = torch.LongTensor(encoded_label)
+        
+        return image_tensor, label_tensor
     
     def encode_text(self, text: str) -> List[int]:
         """テキストを数値配列に変換"""
@@ -144,99 +153,163 @@ class XiaomiTimestampCNN:
         else:
             encoded = encoded[:self.max_length]
         return encoded
+
+class XiaomiTimestampCNN(nn.Module):
+    """Xiaomiタイムスタンプ認識用CNNモデル"""
+    
+    def __init__(self, num_chars: int, max_length: int = 19):
+        super(XiaomiTimestampCNN, self).__init__()
+        self.max_length = max_length
+        
+        # CNN特徴抽出
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        
+        self.pool = nn.MaxPool2d(2, 2)
+        self.dropout = nn.Dropout(0.3)
+        
+        # LSTM for sequence modeling
+        self.lstm = nn.LSTM(128, 128, batch_first=True, bidirectional=True)
+        
+        # Output layer
+        self.fc = nn.Linear(256, num_chars)  # 256 because bidirectional LSTM
+    
+    def forward(self, x):
+        # CNN feature extraction
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)
+        
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        
+        x = F.relu(self.conv3(x))
+        
+        # Reshape for LSTM (batch, seq_len, features)
+        batch_size, channels, height, width = x.size()
+        x = x.view(batch_size, channels, -1).permute(0, 2, 1)
+        
+        # LSTM
+        x, _ = self.lstm(x)
+        x = self.dropout(x)
+        
+        # Take first max_length timesteps
+        x = x[:, :self.max_length, :]
+        
+        # Output layer
+        x = self.fc(x)
+        
+        return x
+
+class XiaomiTimestampTrainer:
+    """PyTorchベースのタイムスタンプ認識トレーナー"""
+    
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+        self.char_to_idx = self._build_char_mapping()
+        self.idx_to_char = {v: k for k, v in self.char_to_idx.items()}
+        self.max_length = 19  # "2025/07/01 12:34:56"
+        self.model = None
+        self.device = torch.device('cpu')  # Force CPU mode for compatibility
+        
+        if self.debug:
+            print(f"Using device: {self.device}")
+    
+    def _build_char_mapping(self) -> Dict[str, int]:
+        """文字とインデックスのマッピングを構築"""
+        chars = "0123456789/:. "
+        char_to_idx = {char: idx + 1 for idx, char in enumerate(chars)}
+        char_to_idx['<PAD>'] = 0  # パディング文字
+        return char_to_idx
     
     def decode_text(self, encoded: List[int]) -> str:
         """数値配列をテキストに変換"""
         return ''.join([self.idx_to_char.get(idx, '') for idx in encoded if idx != 0])
     
     def build_model(self):
-        """CNNモデルを構築"""
-        inputs = keras.Input(shape=(*self.input_shape, 1), name='image')
-        
-        # CNN特徴抽出
-        x = keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-        x = keras.layers.MaxPooling2D((2, 2))(x)
-        
-        x = keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-        x = keras.layers.MaxPooling2D((2, 2))(x)
-        
-        x = keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
-        
-        # RNN部分への準備
-        x = keras.layers.Reshape((-1, 128))(x)
-        
-        # LSTM層
-        x = keras.layers.LSTM(128, return_sequences=True)(x)
-        x = keras.layers.LSTM(64, return_sequences=True)(x)
-        
-        # Dense層で文字予測
-        x = keras.layers.TimeDistributed(
-            keras.layers.Dense(len(self.char_to_idx), activation='softmax')
-        )(x)
-        
-        # 固定長出力に調整
-        x = keras.layers.Lambda(lambda x: x[:, :self.max_length, :])(x)
-        
-        self.model = keras.Model(inputs=inputs, outputs=x)
-        
-        # モデルコンパイル
-        self.model.compile(
-            optimizer='adam',
-            loss='sparse_categorical_crossentropy',
-            metrics=['accuracy']
-        )
+        """モデルを構築"""
+        self.model = XiaomiTimestampCNN(
+            num_chars=len(self.char_to_idx),
+            max_length=self.max_length
+        ).to(self.device)
         
         if self.debug:
-            self.model.summary()
+            print(f"Model parameters: {sum(p.numel() for p in self.model.parameters())}")
     
-    def prepare_training_data(self, images: List[np.ndarray], labels: List[str]) -> Tuple[np.ndarray, np.ndarray]:
-        """学習データの準備"""
-        # 画像データの準備
-        X = np.array(images)
-        X = np.expand_dims(X, axis=-1)  # チャンネル次元追加
-        
-        # ラベルデータの準備
-        y = []
-        for label in labels:
-            encoded = self.encode_text(label)
-            y.append(encoded)
-        
-        y = np.array(y)
-        
-        return X, y
-    
-    def train(self, X: np.ndarray, y: np.ndarray, validation_split: float = 0.2, epochs: int = 50):
+    def train(self, images: List[np.ndarray], labels: List[str], epochs: int = 30, batch_size: int = 32):
         """モデルの訓練"""
         if self.model is None:
             self.build_model()
         
         # データ分割
         X_train, X_val, y_train, y_val = train_test_split(
-            X, y, test_size=validation_split, random_state=42
+            images, labels, test_size=0.2, random_state=42
         )
         
-        # コールバック設定
-        callbacks = [
-            keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True),
-            keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=5),
-            keras.callbacks.ModelCheckpoint(
-                'xiaomi_timestamp_model.h5', 
-                save_best_only=True, 
-                monitor='val_loss'
-            )
-        ]
+        # Dataset とDataLoader作成
+        train_dataset = TimestampDataset(X_train, y_train, self.char_to_idx, self.max_length)
+        val_dataset = TimestampDataset(X_val, y_val, self.char_to_idx, self.max_length)
         
-        # 訓練実行
-        history = self.model.fit(
-            X_train, y_train,
-            validation_data=(X_val, y_val),
-            epochs=epochs,
-            batch_size=32,
-            callbacks=callbacks,
-            verbose=1 if self.debug else 0
-        )
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         
-        return history
+        # オプティマイザーと損失関数
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        criterion = nn.CrossEntropyLoss(ignore_index=0)  # パディングを無視
+        
+        best_val_loss = float('inf')
+        
+        for epoch in range(epochs):
+            # Training phase
+            self.model.train()
+            train_loss = 0.0
+            
+            for batch_images, batch_labels in train_loader:
+                batch_images = batch_images.to(self.device)
+                batch_labels = batch_labels.to(self.device)
+                
+                optimizer.zero_grad()
+                outputs = self.model(batch_images)
+                
+                # Reshape for loss calculation
+                outputs = outputs.view(-1, len(self.char_to_idx))
+                batch_labels = batch_labels.view(-1)
+                
+                loss = criterion(outputs, batch_labels)
+                loss.backward()
+                optimizer.step()
+                
+                train_loss += loss.item()
+            
+            # Validation phase
+            self.model.eval()
+            val_loss = 0.0
+            
+            with torch.no_grad():
+                for batch_images, batch_labels in val_loader:
+                    batch_images = batch_images.to(self.device)
+                    batch_labels = batch_labels.to(self.device)
+                    
+                    outputs = self.model(batch_images)
+                    outputs = outputs.view(-1, len(self.char_to_idx))
+                    batch_labels = batch_labels.view(-1)
+                    
+                    loss = criterion(outputs, batch_labels)
+                    val_loss += loss.item()
+            
+            train_loss /= len(train_loader)
+            val_loss /= len(val_loader)
+            
+            if self.debug:
+                print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+            
+            # Save best model
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                torch.save(self.model.state_dict(), 'xiaomi_timestamp_model.pth')
+        
+        if self.debug:
+            print("Training completed!")
     
     def predict_timestamp(self, image: np.ndarray) -> str:
         """画像からタイムスタンプを予測"""
@@ -249,11 +322,13 @@ class XiaomiTimestampCNN:
         
         image = cv2.resize(image, (64, 16))
         image = image.astype(np.float32) / 255.0
-        image = np.expand_dims(image, axis=(0, -1))
+        image_tensor = torch.FloatTensor(image).unsqueeze(0).unsqueeze(0).to(self.device)
         
         # 予測
-        predictions = self.model.predict(image, verbose=0)
-        predicted_indices = np.argmax(predictions[0], axis=-1)
+        self.model.eval()
+        with torch.no_grad():
+            outputs = self.model(image_tensor)
+            predicted_indices = torch.argmax(outputs, dim=-1).squeeze().cpu().numpy()
         
         # デコード
         timestamp = self.decode_text(predicted_indices.tolist())
@@ -262,26 +337,21 @@ class XiaomiTimestampCNN:
     def save_model(self, filepath: str):
         """モデルを保存"""
         if self.model:
-            self.model.save(filepath)
-            # 文字マッピングも保存
-            mapping_path = filepath.replace('.h5', '_char_mapping.json')
-            with open(mapping_path, 'w') as f:
-                json.dump({
-                    'char_to_idx': self.char_to_idx,
-                    'max_length': self.max_length
-                }, f)
+            torch.save({
+                'model_state_dict': self.model.state_dict(),
+                'char_to_idx': self.char_to_idx,
+                'max_length': self.max_length
+            }, filepath)
     
     def load_model(self, filepath: str):
         """モデルを読み込み"""
-        self.model = keras.models.load_model(filepath)
-        # 文字マッピングも読み込み
-        mapping_path = filepath.replace('.h5', '_char_mapping.json')
-        if os.path.exists(mapping_path):
-            with open(mapping_path, 'r') as f:
-                data = json.load(f)
-                self.char_to_idx = data['char_to_idx']
-                self.idx_to_char = {v: k for k, v in self.char_to_idx.items()}
-                self.max_length = data['max_length']
+        checkpoint = torch.load(filepath, map_location=self.device)
+        self.char_to_idx = checkpoint['char_to_idx']
+        self.idx_to_char = {v: k for k, v in self.char_to_idx.items()}
+        self.max_length = checkpoint['max_length']
+        
+        self.build_model()
+        self.model.load_state_dict(checkpoint['model_state_dict'])
 
 def main():
     """メイン実行関数"""
@@ -303,24 +373,21 @@ def main():
     
     # 2. モデル構築と訓練
     print("🧠 Building and training timestamp recognition model...")
-    model = XiaomiTimestampCNN(debug=debug)
-    X, y = model.prepare_training_data(images, labels)
-    
-    print(f"📈 Training data shape: X={X.shape}, y={y.shape}")
+    trainer = XiaomiTimestampTrainer(debug=debug)
     
     # 3. 訓練実行
-    history = model.train(X, y, epochs=30)
+    trainer.train(images, labels, epochs=30)
     
     # 4. モデル保存
-    model_path = "xiaomi_timestamp_model.h5"
-    model.save_model(model_path)
+    model_path = "xiaomi_timestamp_model.pth"
+    trainer.save_model(model_path)
     print(f"💾 Model saved to: {model_path}")
     
     # 5. 簡単なテスト
     print("🧪 Testing model with sample data...")
     if len(images) > 0:
         test_image = images[0]
-        predicted = model.predict_timestamp(test_image)
+        predicted = trainer.predict_timestamp(test_image)
         actual = labels[0]
         print(f"Actual: {actual}")
         print(f"Predicted: {predicted}")
