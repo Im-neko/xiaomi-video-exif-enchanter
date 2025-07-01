@@ -113,6 +113,8 @@ COPY file_manager.py .
 COPY progress_manager.py .
 COPY output_path_generator.py .
 COPY video_error_handler.py .
+COPY timestamp_ml_trainer.py .
+COPY test_ml_model.py .
 
 # 実行可能にする
 RUN chmod +x exif_enchanter.py

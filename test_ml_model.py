@@ -25,7 +25,7 @@ class ModelTester:
         self.output_dir = Path(output_dir)
         self.debug = debug
         
-        # Load trained model
+        # Load trained CRNN-CTC model
         self.trainer = XiaomiTimestampTrainer(debug=debug)
         self.trainer.load_model(model_path)
         
@@ -231,7 +231,7 @@ class ModelTester:
 
 def main():
     """メイン実行関数"""
-    model_path = "xiaomi_timestamp_model.pth"
+    model_path = "models/fixed_xiaomi_timestamp_model.pth"
     output_dir = "/mnt/c/Users/micro/apps/xiaomi-video-exif-enchanter/output"
     
     print("🚀 Xiaomi Timestamp ML Model Testing Started")

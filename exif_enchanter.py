@@ -27,8 +27,6 @@ TIMESTAMP_PATTERNS = [
     r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
     # ハイフン区切り形式: 2024/12/28 15.30.45
     r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}).(\d{2}).(\d{2})',
-    # 分まで形式（秒を0として処理）: 2024/12/28 15:30
-    r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})',
 ]
 
 class EasyOCRSingleton:
@@ -178,18 +176,18 @@ class XiaomiVideoExifEnchanter:
         """Xiaomi動画専用の固定タイムスタンプ位置でクロップ
         
         タイムスタンプ領域の座標:
-        - 左上: (5/149*width, 0)
-        - 右上: (21/149*width, 0)  
-        - 左下: (5/149*width, 3/68*height)
-        - 右下: (32/149*width, 3/68*height)
+        - 左上: (20/640*width, 0)
+        - 右上: (155/640*width, 0)  
+        - 左下: (20/640*width, 16/360*height)
+        - 右下: (155/640*width, 16/360*height)
         """
         height, width = frame.shape[:2]
         
         # 指定された座標を計算
-        x_start = int(5 * width // 149)  # 5/149 * width
+        x_start = int(20 * width // 640)  # 20/640 * width
         y_start = 0
-        x_end = int(32 * width // 149)  # 32/149 * width
-        y_end = int(3 * height // 68)  # 3/68 * height
+        x_end = int(155 * width // 640)  # 155/640 * width
+        y_end = int(16 * height // 360)  # 16/360 * height
         
         # 座標の境界チェック
         x_end = min(x_end, width)
