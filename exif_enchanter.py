@@ -157,9 +157,15 @@ class XiaomiVideoExifEnchanter:
     def save_debug_frame(self, frame: np.ndarray, filename: str = "debug_frame.jpg") -> bool:
         """デバッグ用にフレームを保存"""
         try:
-            cv2.imwrite(filename, frame)
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), frame)
             if self.debug:
-                print(f"Debug frame saved: {filename}")
+                print(f"Debug frame saved: {debug_path}")
             return True
         except Exception as e:
             if self.debug:
@@ -269,9 +275,15 @@ class XiaomiVideoExifEnchanter:
     def save_cropped_area(self, cropped_frame: np.ndarray, filename: str = "cropped_timestamp.jpg") -> bool:
         """クロップされた領域を保存"""
         try:
-            cv2.imwrite(filename, cropped_frame)
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), cropped_frame)
             if self.debug:
-                print(f"Cropped area saved: {filename}")
+                print(f"Cropped area saved: {debug_path}")
             return True
         except Exception as e:
             if self.debug:

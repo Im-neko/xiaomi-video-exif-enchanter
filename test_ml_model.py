@@ -229,6 +229,73 @@ class ModelTester:
             json.dump(summary, f, indent=2, ensure_ascii=False)
         print(f"📊 Test results saved to: {filename}")
 
+def run_ocr_only_test(output_dir: str):
+    """OCRのみのテストを実行"""
+    print("🔍 Running OCR-only accuracy test...")
+    
+    # Data extractor for getting test samples
+    extractor = XiaomiTimestampDataExtractor(output_dir, debug=True)
+    
+    # テスト用の動画ファイルをランダムに選択
+    import random
+    from pathlib import Path
+    
+    video_files = list(Path(output_dir).glob("*.mp4"))
+    if len(video_files) == 0:
+        print("❌ No video files found for testing")
+        return
+    
+    test_files = random.sample(video_files, min(20, len(video_files)))
+    
+    ocr_successes = 0
+    total_valid_tests = 0
+    
+    print(f"Testing {len(test_files)} files with OCR...")
+    
+    for i, video_file in enumerate(test_files):
+        print(f"Progress: {i+1}/{len(test_files)}")
+        
+        # 実際のタイムスタンプを取得
+        actual = extractor.extract_timestamp_from_filename(video_file)
+        if not actual:
+            continue
+        
+        # OCRで予測
+        try:
+            from exif_enchanter import XiaomiVideoExifEnchanter
+            enchanter = XiaomiVideoExifEnchanter(debug=False, enhanced_ocr=True)
+            
+            # 動画の最初のフレームを抽出
+            frame = enchanter.extract_first_frame(str(video_file))
+            cropped = enchanter.crop_timestamp_area(frame)
+            timestamp = enchanter.extract_timestamp(cropped)
+            
+            if timestamp and timestamp != "OCR_FAILED":
+                ocr_prediction = timestamp
+                # 類似性をチェック（簡単な比較）
+                if actual.replace('/', '').replace(':', '').replace(' ', '') == ocr_prediction.replace('/', '').replace(':', '').replace(' ', ''):
+                    ocr_successes += 1
+                    print(f"✅ {Path(video_file).name}: {actual} == {ocr_prediction}")
+                else:
+                    print(f"❌ {Path(video_file).name}: {actual} != {ocr_prediction}")
+            else:
+                print(f"❌ {Path(video_file).name}: OCR failed")
+                
+            total_valid_tests += 1
+                
+        except Exception as e:
+            print(f"❌ Error processing {video_file}: {e}")
+    
+    # 結果の集計
+    ocr_accuracy = (ocr_successes / total_valid_tests * 100) if total_valid_tests > 0 else 0
+    
+    print("\n" + "="*60)
+    print("🎯 OCR-ONLY TEST RESULTS")
+    print("="*60)
+    print(f"Total valid tests: {total_valid_tests}")
+    print(f"OCR accuracy: {ocr_accuracy:.1f}% ({ocr_successes}/{total_valid_tests})")
+    print("="*60)
+
 def main():
     """メイン実行関数"""
     model_path = "models/fixed_xiaomi_timestamp_model.pth"
@@ -242,8 +309,19 @@ def main():
         print("Please run timestamp_ml_trainer.py first to create the model.")
         return
     
-    # テスター初期化
-    tester = ModelTester(model_path, output_dir, debug=True)
+    # テスター初期化を試行
+    try:
+        tester = ModelTester(model_path, output_dir, debug=True)
+    except RuntimeError as e:
+        if "state_dict" in str(e):
+            print(f"❌ Model architecture mismatch: {model_path}")
+            print("The saved model was trained with a different architecture.")
+            print("Please run timestamp_ml_trainer.py to retrain with current architecture.")
+            print("Running OCR-only comparison test instead...")
+            run_ocr_only_test(output_dir)
+            return
+        else:
+            raise e
     
     # 包括的テスト実行
     summary = tester.run_comprehensive_test(num_samples=30)

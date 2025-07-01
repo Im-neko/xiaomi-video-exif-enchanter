@@ -151,8 +151,14 @@ class XiaomiVideoExifEnchanterML:
     def save_debug_frame(self, frame: np.ndarray, filename: str) -> None:
         """デバッグ用にフレームを保存"""
         if self.debug:
-            cv2.imwrite(filename, frame)
-            print(f"Debug frame saved: {filename}")
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), frame)
+            print(f"Debug frame saved: {debug_path}")
     
     def crop_timestamp_area(self, frame: np.ndarray) -> np.ndarray:
         """フレームからタイムスタンプ領域をクロップ（Xiaomi C301専用）"""
@@ -201,8 +207,14 @@ class XiaomiVideoExifEnchanterML:
     def save_cropped_area(self, cropped_frame: np.ndarray, filename: str) -> None:
         """クロップした領域を保存"""
         if self.debug:
-            cv2.imwrite(filename, cropped_frame)
-            print(f"Cropped area saved: {filename}")
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), cropped_frame)
+            print(f"Cropped area saved: {debug_path}")
     
     def extract_timestamp(self, cropped_frame: np.ndarray, input_path: str = None) -> Optional[str]:
         """クロップされたフレームからタイムスタンプを抽出（ML専用版）"""

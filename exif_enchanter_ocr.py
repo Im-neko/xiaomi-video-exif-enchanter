@@ -127,8 +127,14 @@ class XiaomiVideoExifEnchanterOCR:
     def save_debug_frame(self, frame: np.ndarray, filename: str) -> None:
         """デバッグ用にフレームを保存"""
         if self.debug:
-            cv2.imwrite(filename, frame)
-            print(f"Debug frame saved: {filename}")
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), frame)
+            print(f"Debug frame saved: {debug_path}")
     
     def crop_timestamp_area(self, frame: np.ndarray) -> np.ndarray:
         """フレームからタイムスタンプ領域をクロップ（Xiaomi C301専用）"""
@@ -177,8 +183,14 @@ class XiaomiVideoExifEnchanterOCR:
     def save_cropped_area(self, cropped_frame: np.ndarray, filename: str) -> None:
         """クロップした領域を保存"""
         if self.debug:
-            cv2.imwrite(filename, cropped_frame)
-            print(f"Cropped area saved: {filename}")
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), cropped_frame)
+            print(f"Cropped area saved: {debug_path}")
     
     def get_fixed_timestamp_coordinates(self, frame: np.ndarray) -> tuple:
         """固定タイムスタンプ座標を取得"""
@@ -258,11 +270,16 @@ class XiaomiVideoExifEnchanterOCR:
         
         # デバッグ用: バリエーション画像を保存
         if self.debug and input_path:
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
             base_name = os.path.splitext(os.path.basename(input_path))[0]
             for i, (variant_name, variant_image) in enumerate(variants):
                 debug_filename = f"debug_variant_{base_name}_{i}_{variant_name}.jpg"
-                cv2.imwrite(debug_filename, variant_image)
-            print(f"Saved {len(variants)} debug variants for {base_name}")
+                debug_path = debug_dir / debug_filename
+                cv2.imwrite(str(debug_path), variant_image)
+            print(f"Saved {len(variants)} debug variants for {base_name} in debug/")
         
         # 各バリエーションでOCRを実行
         for i, (variant_name, variant_image) in enumerate(variants):

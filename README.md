@@ -189,10 +189,18 @@ python exif_enchanter_ml.py sample.mp4 --model-path models/fixed_xiaomi_timestam
 **期待される処理フロー（デバッグモード時）**
 ```
 ✓ Frame extracted successfully, shape: (360, 640, 3)
+✓ Debug frame saved: debug/debug_sample.mp4.jpg
+✓ Cropped area saved: debug/crop_sample.mp4.jpg
 ✓ OCR result: '@ 2025/05/28 19.41.14 ' (confidence: 0.78)
 ✓ Timestamp found: @ 2025/05/28 19.41.14 
 ✓ Timestamp parsed successfully: 2025-05-28 19:41:14
 ```
+
+**デバッグファイル保存先**
+全てのデバッグファイルは`debug/`フォルダに保存されます：
+- `debug/debug_*.jpg`: 抽出されたフレーム画像
+- `debug/crop_*.jpg`: クロップされたタイムスタンプ領域
+- `debug/debug_variant_*.jpg`: OCR前処理バリエーション（強化OCRスクリプト）
 
 ### 単一ファイル処理
 ```bash

@@ -153,24 +153,27 @@ TIMESTAMP_PATTERNS = [
 python exif_enchanter_ocr.py sample.mp4 --debug
 ```
 
-保存される画像：
-- `debug_variant_sample_0_original.jpg`
-- `debug_variant_sample_1_enlarged_2x.jpg`
-- `debug_variant_sample_2_enlarged_3x.jpg`
-- `debug_variant_sample_3_contrast_enhanced.jpg`
-- `debug_variant_sample_4_enlarged_2x_contrast.jpg`
-- `debug_variant_sample_5_padded_uniform_20.jpg`
-- `debug_variant_sample_6_padded_contrast.jpg`
+保存される画像（`debug/`フォルダ内）：
+- `debug/debug_variant_sample_0_original.jpg`
+- `debug/debug_variant_sample_1_enlarged_2x.jpg`
+- `debug/debug_variant_sample_2_enlarged_3x.jpg`
+- `debug/debug_variant_sample_3_contrast_enhanced.jpg`
+- `debug/debug_variant_sample_4_enlarged_2x_contrast.jpg`
+- `debug/debug_variant_sample_5_padded_uniform_20.jpg`
+- `debug/debug_variant_sample_6_padded_contrast.jpg`
 
 ### OCR結果詳細
 ```
 Starting enhanced OCR extraction...
+Saved 7 debug variants for sample in debug/
   Trying variant 1/7: original
   EasyOCR raw results for original: [(..., '2025/05/28 19.41.14', 0.858)]
     Text: '2025/05/28 19.41.14', Confidence: 0.858
     Found timestamp match: '2025/05/28 19.41.14' with pattern
   Tesseract result for original: '2025/05/28 19.41.14'
 Enhanced OCR selected: '2025/05/28 19.41.14' from EasyOCR (original) with confidence 0.858
+Debug frame saved: debug/debug_sample.mp4.jpg
+Cropped area saved: debug/crop_sample.mp4.jpg
 ```
 
 ## エラーハンドリング

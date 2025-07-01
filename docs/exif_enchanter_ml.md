@@ -249,6 +249,8 @@ Model parameters: 8901327
 Character mapping size: 15
 ✅ ML model loaded: models/fixed_xiaomi_timestamp_model.pth
 Processing video with ML model: sample.mp4
+Debug frame saved: debug/debug_ml_sample.mp4.jpg
+Cropped area saved: debug/crop_ml_sample.mp4.jpg
 🤖 ML model prediction: 2025/05/29 15.53.12
 ✅ ML model detected timestamp: 2025/05/29 15.53.12
 Extracted timestamp (ML): 2025/05/29 15.53.12
