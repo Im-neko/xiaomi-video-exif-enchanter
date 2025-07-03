@@ -28,6 +28,8 @@ class VideoErrorType(Enum):
     INVALID_OUTPUT = "invalid_output"
     TIMESTAMP_PARSE_FAILED = "timestamp_parse_failed"
     FFMPEG_ERROR = "ffmpeg_error"
+    FFMPEG_FAILED = "ffmpeg_failed"
+    FRAME_EXTRACTION_FAILED = "frame_extraction_failed"
     UNEXPECTED_ERROR = "unexpected_error"
     UNKNOWN_ERROR = "unknown_error"
 

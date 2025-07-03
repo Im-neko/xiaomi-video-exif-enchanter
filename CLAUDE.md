@@ -4,12 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python tool that extracts timestamp information from Xiaomi home camera (C301) videos using OCR and/or Machine Learning models, then embeds them as EXIF metadata. The project provides three specialized scripts for different use cases:
+This is a Python tool that extracts timestamp information from Xiaomi home camera (C301) videos using OCR, then embeds them as EXIF metadata. The project provides two specialized scripts for different use cases:
 
 ### Available Scripts
 1. **`exif_enchanter.py`** - Standard OCR-based processing (recommended for production)
-2. **`exif_enchanter_ocr.py`** - Enhanced OCR-only version with multiple preprocessing techniques
-3. **`exif_enchanter_ml.py`** - ML model-based processing with OCR fallback for maximum accuracy
+2. **`exif_enchanter_ocr.py`** - Enhanced OCR-only version with multiple preprocessing techniques and early exit optimization
 
 The core functionality involves reading timestamp text from the first frame, converting from JST to UTC, and using FFmpeg to embed proper EXIF metadata.
 
@@ -47,11 +46,7 @@ python -m unittest tests.test_xiaomi_integration -v
 
 # Test different script versions with sample video
 python exif_enchanter.py sample.mp4 --debug
-python exif_enchanter_ocr.py sample.mp4 --debug
-python exif_enchanter_ml.py sample.mp4 --model-path models/fixed_xiaomi_timestamp_model.pth --debug
-
-# Test ML model functionality
-python test_ml_model.py -v
+python exif_enchanter_ocr.py sample.mp4 --debug --early-exit-threshold 0.8
 ```
 
 ### Docker Usage
@@ -86,10 +81,7 @@ docker-compose run --rm xiaomi-exif-enhancer --batch /app/input --output-dir /ap
 
 #### Script-Specific Classes
 - **`XiaomiVideoExifEnchanter`** - Standard OCR processing class (`exif_enchanter.py`)
-- **`XiaomiVideoExifEnchanterOCR`** - Enhanced OCR processing class (`exif_enchanter_ocr.py`)
-- **`XiaomiVideoExifEnchanterML`** - ML-based processing class (`exif_enchanter_ml.py`)
-- **`XiaomiTimestampDataExtractor`** - ML training data extraction from processed videos
-- **`XiaomiTimestampCRNN`** - Machine learning model for improved timestamp recognition
+- **`XiaomiVideoExifEnchanterOCR`** - Enhanced OCR processing class with 24 preprocessing variants and early exit optimization (`exif_enchanter_ocr.py`)
 
 ### Docker Architecture
 - **Multi-stage builds** for optimized image sizes
@@ -159,11 +151,10 @@ Output files follow pattern: `{original_name}_enhanced.{ext}` when not explicitl
 
 ### Dependencies Management
 - **Core dependencies**: OpenCV, EasyOCR, piexif, ffmpeg-python, NumPy, Pillow
-- **ML dependencies**: PyTorch, scikit-learn for machine learning functionality
 - **Dev dependencies**: pytest, black, isort, flake8, mypy for code quality
 - **System requirements**: FFmpeg and Tesseract must be installed separately
 
-## Machine Learning Enhancement
+## Enhanced OCR Features
 
 ### Script Selection Guide
 
@@ -173,47 +164,34 @@ Output files follow pattern: `{original_name}_enhanced.{ext}` when not explicitl
 - ✅ Production environments
 - ✅ Stable, well-tested processing
 - ✅ Lower resource requirements
-- ✅ No ML dependencies needed
+- ✅ Single OCR pass
 
 **`exif_enchanter_ocr.py` (Enhanced OCR)**
 - ✅ Maximum OCR accuracy needed
-- ✅ Multiple preprocessing techniques
+- ✅ 24 preprocessing techniques with early exit optimization
+- ✅ Consensus scoring for multiple OCR results
 - ✅ Support for both EasyOCR and Tesseract
 - ✅ Complex timestamp formats
+- ✅ Parallel processing support with `--max-workers`
 
-**`exif_enchanter_ml.py` (ML-based)**
-- ✅ Highest accuracy requirements
-- ✅ ML training environment available
-- ✅ GPU processing capability
-- ✅ Fallback to OCR when ML fails
-
-### ML Model Training
-The project includes ML-based timestamp recognition improvements:
-
+### Enhanced OCR Usage
 ```bash
-# Train ML model from successful processing results
-python timestamp_ml_trainer.py --output-dir ./output --epochs 100
+# Basic enhanced OCR
+python exif_enchanter_ocr.py sample.mp4 --debug
 
-# Test ML model accuracy (best performing model - 100% accuracy)
-python test_ml_model.py --model-path models/fixed_xiaomi_timestamp_model.pth
+# Early exit optimization (stops when high confidence result found)
+python exif_enchanter_ocr.py sample.mp4 --early-exit-threshold 0.8
 
-# Use ML model for enhanced processing
-python exif_enchanter_ml.py sample.mp4 --model-path models/fixed_xiaomi_timestamp_model.pth
+# Parallel batch processing
+python exif_enchanter_ocr.py --batch ./input --output ./output --max-workers 4
 
-# Install RTX 5070 Ti PyTorch support (see RTX5070Ti_GPU_OPTIMIZATION.md)
-pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
+# GPU acceleration
+python exif_enchanter_ocr.py sample.mp4 --gpu
 ```
 
-### ML Architecture
-- **`XiaomiTimestampCRNN`** - CRNN-CTC model with attention for sequence recognition
-- **`XiaomiTimestampDataExtractor`** - Extracts training data from successfully processed videos
-- **`XiaomiTimestampTrainer`** - GPU-optimized trainer with AMP and gradient accumulation
-- **Data augmentation** - Rotation, scaling, noise addition for robust training
-- **Model persistence** - Trained models saved as `.pth` files for reuse
-
-### GPU Training Optimizations
-- **Automatic Mixed Precision**: RTX 5070 Ti Tensor Core utilization
-- **Gradient accumulation**: Effective batch sizes up to 128 with 16GB VRAM
-- **DataLoader optimization**: Non-blocking transfers, parallel workers
-- **Performance benchmarks**: 674.1 samples/sec training throughput
-- **Memory efficiency**: 1.8GB / 16.3GB VRAM usage during training
+### Enhanced OCR Architecture
+- **24 preprocessing variants**: Super resolution, contrast enhancement, noise reduction, etc.
+- **Early exit optimization**: Stops processing when high confidence results are found
+- **Consensus scoring**: Combines results from multiple preprocessing techniques
+- **Parallel processing**: Thread-safe multi-worker support
+- **Process-safe OCR**: Independent EasyOCR instances for each worker

@@ -1,0 +1,3 @@
+Error: Timestamp parse failed: 22.49.24
+Timestamp: 1751387322.9734123
+Original Path: ./input/VIDEO_1750607162771.mp4

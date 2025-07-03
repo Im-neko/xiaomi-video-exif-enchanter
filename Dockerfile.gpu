@@ -108,16 +108,15 @@ COPY --from=dependencies /root/.EasyOCR/ /root/.EasyOCR/
 
 # アプリケーションコードをコピー（最後に配置してコード変更時のキャッシュを活用）
 COPY exif_enchanter.py .
+COPY exif_enchanter_ocr.py .
 COPY batch_processor.py .
 COPY file_manager.py .
 COPY progress_manager.py .
 COPY output_path_generator.py .
 COPY video_error_handler.py .
-COPY timestamp_ml_trainer.py .
-COPY test_ml_model.py .
 
 # 実行可能にする
-RUN chmod +x exif_enchanter.py
+RUN chmod +x exif_enchanter.py exif_enchanter_ocr.py
 
 # データディレクトリの作成
 RUN mkdir -p /app/input /app/output
@@ -129,8 +128,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # ボリュームのマウントポイント
 VOLUME ["/app/input", "/app/output"]
 
-# デフォルトのエントリーポイント
-ENTRYPOINT ["python", "exif_enchanter.py"]
+# デフォルトのエントリーポイント（OCR専用版を使用）
+ENTRYPOINT ["python", "exif_enchanter_ocr.py"]
 
 # デフォルトコマンド（ヘルプ表示）
 CMD ["--help"]
