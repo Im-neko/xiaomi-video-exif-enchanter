@@ -98,6 +98,7 @@ COPY --from=dependencies /root/.EasyOCR/ /root/.EasyOCR/
 
 # アプリケーションコードをコピー（最後に配置してコード変更時のキャッシュを活用）
 COPY exif_enchanter.py .
+COPY exif_enchanter_ocr.py .
 COPY batch_processor.py .
 COPY file_manager.py .
 COPY progress_manager.py .
@@ -105,7 +106,7 @@ COPY output_path_generator.py .
 COPY video_error_handler.py .
 
 # 実行可能にする
-RUN chmod +x exif_enchanter.py
+RUN chmod +x exif_enchanter.py exif_enchanter_ocr.py
 
 # 非rootユーザーの作成（セキュリティ向上）
 RUN groupadd -r appuser && useradd -r -g appuser -m appuser
@@ -125,8 +126,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # ボリュームのマウントポイント
 VOLUME ["/app/input", "/app/output"]
 
-# デフォルトのエントリーポイント
-ENTRYPOINT ["python", "exif_enchanter.py"]
+# デフォルトのエントリーポイント（OCR専用版を使用）
+ENTRYPOINT ["python", "exif_enchanter_ocr.py"]
 
 # デフォルトコマンド（ヘルプ表示）
 CMD ["--help"]

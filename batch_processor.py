@@ -112,31 +112,31 @@ class BatchProcessor:
         original_max_workers = max_workers  # 元の値を保存
         
         if max_workers is None:
-            # CPUコア数に基づいて自動設定（メモリ不足対応で少なめに設定）
-            max_workers = min(len(video_files), max(1, multiprocessing.cpu_count() // 4))
+            # CPUコア数に基づいて自動設定（大量ファイル時は逐次処理でメモリ安全性を優先）
+            if len(video_files) > 500:
+                max_workers = 1  # 大量ファイル時は逐次処理を推奨
+            else:
+                max_workers = min(len(video_files), max(1, multiprocessing.cpu_count() // 4))
         
         # 並列処理の有効性を決定
         if max_workers == 1:
-            # 明示的に並列処理が無効化されている場合
+            # 逐次処理（明示的指定または大量ファイル時の自動選択）
             enable_parallel = False
             if self.debug:
-                print("Parallel processing explicitly disabled")
-        elif len(video_files) > 500 and original_max_workers != 1:
-            # 500ファイル以上は並列処理を無効化（ただし明示的に1が指定された場合は除く）
-            max_workers = 1
-            enable_parallel = False
-            if self.debug:
-                print(f"Large file count ({len(video_files)}), disabling parallel processing to prevent memory issues")
+                if original_max_workers == 1:
+                    print("Parallel processing explicitly disabled")
+                elif len(video_files) > 500:
+                    print(f"Large file count ({len(video_files)}), using sequential processing for memory safety")
+                else:
+                    print("Sequential processing selected")
         elif len(video_files) > 100:
-            max_workers = min(max_workers, 2)  # 100-500ファイル時は最大2プロセス
+            max_workers = min(max_workers, 2)  # 100+ファイル時は最大2プロセス
             enable_parallel = True
         else:
             enable_parallel = len(video_files) > 2 and max_workers > 1
         
         if self.debug:
-            print(f"Parallel processing: {'Enabled' if enable_parallel else 'Disabled'}")
-            if enable_parallel:
-                print(f"Max workers: {max_workers}")
+            print(f"Processing mode: {'Sequential' if not enable_parallel else f'Parallel ({max_workers} workers)'}")
         
         return {
             'enable_parallel': enable_parallel,
@@ -289,10 +289,20 @@ class BatchProcessor:
                                                     input_file, output_file, location)
                         else:
                             # プロセスプール: 各プロセスで独立したリーダー初期化
-                            future = executor.submit(process_single_video_worker, 
-                                                    input_file, output_file, location, 
-                                                    self.enhancer.languages, self.enhancer.use_gpu, self.debug,
-                                                    self.enhancer.enhanced_ocr)
+                            # MLモデル版かどうかチェック
+                            if hasattr(self.enhancer, 'model_path'):
+                                # ML版の場合
+                                from exif_enchanter_ml import worker_process_video as ml_worker
+                                future = executor.submit(ml_worker, 
+                                                        (input_file, output_file, location, 
+                                                         self.debug, self.enhancer.languages, 
+                                                         self.enhancer.use_gpu, self.enhancer.model_path))
+                            else:
+                                # 通常版の場合
+                                future = executor.submit(process_single_video_worker, 
+                                                        input_file, output_file, location, 
+                                                        self.enhancer.languages, self.enhancer.use_gpu, self.debug,
+                                                        self.enhancer.enhanced_ocr)
                         
                         future_to_file[future] = (input_file, output_file)
                         

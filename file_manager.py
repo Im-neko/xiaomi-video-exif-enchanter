@@ -103,7 +103,7 @@ class FileManager:
         
     def move_to_failed_folder(self, input_path: str, reason: str = "Unknown error", 
                             output_dir: Optional[str] = None) -> None:
-        """失敗したファイルをfailedフォルダに移動"""
+        """失敗したファイルをfailedフォルダにコピー（元ファイルは保持）"""
         try:
             if output_dir is None:
                 output_dir = os.path.dirname(input_path)
@@ -122,38 +122,39 @@ class FileManager:
                 destination = os.path.join(failed_dir, f"{name_part}_{counter}{ext}")
                 counter += 1
                 
-            # ファイルを移動
-            shutil.move(input_path, destination)
+            # ファイルをコピー（元ファイルは保持）
+            shutil.copy2(input_path, destination)
+            
+            # 理由をテキストファイルに記録
+            reason_file_path = destination + ".error.txt"
+            with open(reason_file_path, 'w', encoding='utf-8') as f:
+                f.write(f"Error: {reason}\n")
+                f.write(f"Timestamp: {os.path.getmtime(input_path)}\n")
+                f.write(f"Original Path: {input_path}\n")
             
             if self.debug:
-                print(f"Moved failed file to: {destination}")
+                print(f"Copied failed file to: {destination}")
+                print(f"Original file preserved: {input_path}")
                 print(f"Reason: {reason}")
                 
         except Exception as e:
             if self.debug:
-                print(f"Could not move failed file: {e}")
+                print(f"Could not copy failed file: {e}")
                 
     def limit_batch_size(self, unprocessed_files: List[str], batch_size: Optional[int], 
                         max_workers: Optional[int]) -> List[str]:
         """バッチサイズの制限を適用"""
-        # 明示的なバッチサイズ制限
+        # 明示的なバッチサイズ制限のみ適用（自動制限は削除）
         if batch_size is not None and len(unprocessed_files) > batch_size:
             if self.debug:
                 print(f"Limiting batch size from {len(unprocessed_files)} to {batch_size} unprocessed files")
             video_files = unprocessed_files[:batch_size]
             print(f"⚠ Processing next {batch_size} unprocessed files out of {len(unprocessed_files)} remaining")
             return video_files
-            
-        # 自動制限: 1000ファイル以上の場合は警告を表示して制限（並列処理無効時は制限しない）
-        elif len(unprocessed_files) > 1000 and max_workers != 1:
-            default_limit = 500
-            if self.debug:
-                print(f"Auto-limiting large batch from {len(unprocessed_files)} to {default_limit} files")
-            video_files = unprocessed_files[:default_limit]
-            print(f"⚠ Auto-limited to next {default_limit} unprocessed files to prevent memory issues")
-            print(f"  Run the command multiple times or use --batch-size to process more files")
-            return video_files
         else:
+            # 自動制限を削除し、全ファイルを処理対象とする
+            if len(unprocessed_files) > 1000 and self.debug:
+                print(f"Processing all {len(unprocessed_files)} files (auto-limit removed)")
             return unprocessed_files
 
 

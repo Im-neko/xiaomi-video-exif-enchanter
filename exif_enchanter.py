@@ -27,8 +27,6 @@ TIMESTAMP_PATTERNS = [
     r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})',
     # ハイフン区切り形式: 2024/12/28 15.30.45
     r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}).(\d{2}).(\d{2})',
-    # 分まで形式（秒を0として処理）: 2024/12/28 15:30
-    r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})',
 ]
 
 class EasyOCRSingleton:
@@ -159,9 +157,15 @@ class XiaomiVideoExifEnchanter:
     def save_debug_frame(self, frame: np.ndarray, filename: str = "debug_frame.jpg") -> bool:
         """デバッグ用にフレームを保存"""
         try:
-            cv2.imwrite(filename, frame)
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), frame)
             if self.debug:
-                print(f"Debug frame saved: {filename}")
+                print(f"Debug frame saved: {debug_path}")
             return True
         except Exception as e:
             if self.debug:
@@ -178,18 +182,18 @@ class XiaomiVideoExifEnchanter:
         """Xiaomi動画専用の固定タイムスタンプ位置でクロップ
         
         タイムスタンプ領域の座標:
-        - 左上: (5/149*width, 0)
-        - 右上: (21/149*width, 0)  
-        - 左下: (5/149*width, 3/68*height)
-        - 右下: (32/149*width, 3/68*height)
+        - 左上: (20/640*width, 0)
+        - 右上: (155/640*width, 0)  
+        - 左下: (20/640*width, 16/360*height)
+        - 右下: (155/640*width, 16/360*height)
         """
         height, width = frame.shape[:2]
         
         # 指定された座標を計算
-        x_start = int(5 * width // 149)  # 5/149 * width
+        x_start = int(20 * width // 640)  # 20/640 * width
         y_start = 0
-        x_end = int(32 * width // 149)  # 32/149 * width
-        y_end = int(3 * height // 68)  # 3/68 * height
+        x_end = int(155 * width // 640)  # 155/640 * width
+        y_end = int(16 * height // 360)  # 16/360 * height
         
         # 座標の境界チェック
         x_end = min(x_end, width)
@@ -271,9 +275,15 @@ class XiaomiVideoExifEnchanter:
     def save_cropped_area(self, cropped_frame: np.ndarray, filename: str = "cropped_timestamp.jpg") -> bool:
         """クロップされた領域を保存"""
         try:
-            cv2.imwrite(filename, cropped_frame)
+            # debugフォルダを作成
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # debug/以下にファイルを保存
+            debug_path = debug_dir / filename
+            cv2.imwrite(str(debug_path), cropped_frame)
             if self.debug:
-                print(f"Cropped area saved: {filename}")
+                print(f"Cropped area saved: {debug_path}")
             return True
         except Exception as e:
             if self.debug:
@@ -444,6 +454,22 @@ class XiaomiVideoExifEnchanter:
         # 余白 + コントラスト強化
         padded_contrast = self._enhance_contrast(padded_uniform_20)
         variants.append(("padded_contrast", padded_contrast))
+        
+        # 二値化処理（OCR精度向上のため復活）
+        binary = self._apply_binary_threshold(image)
+        variants.append(("binary", binary))
+        
+        # アダプティブ二値化（文字境界強化）
+        adaptive_binary = self._apply_adaptive_threshold(image)
+        variants.append(("adaptive_binary", adaptive_binary))
+        
+        # シャープ化（文字鮮明化）
+        sharpened = self._apply_sharpening(image)
+        variants.append(("sharpened", sharpened))
+        
+        # 拡大 + 二値化（効果的な組み合わせ）
+        enlarged_binary = self._apply_binary_threshold(enlarged_2x)
+        variants.append(("enlarged_2x_binary", enlarged_binary))
         
         return variants
     
@@ -989,7 +1015,7 @@ class XiaomiVideoExifEnchanter:
         return None
     
     def _clean_ocr_errors(self, timestamp_str: str) -> str:
-        """OCR誤認識文字を修正"""
+        """OCR誤認識文字を修正（慎重に適用）"""
         # 一般的な誤認識パターンを修正
         cleaned = timestamp_str
         
@@ -998,19 +1024,27 @@ class XiaomiVideoExifEnchanter:
             # 分まで形式の場合、推定秒数を追加
             cleaned = cleaned[:-1] + '.14'  # デフォルト秒数
         
-        # その他のOCR誤認識パターン
-        replacements = {
-            '=': '.',  # = -> .
-            'I': '1',  # I -> 1
-            'l': '1',  # l -> 1
-            'O': '0',  # O -> 0
-            'S': '5',  # S -> 5
-            'G': '6',  # G -> 6
-            'B': '8',  # B -> 8
-        }
+        # 数字部分のみの誤認識パターンを修正（文字部分は除外）
+        # タイムスタンプ内の数字位置でのみ置換を適用
+        import re
         
-        for wrong, correct in replacements.items():
-            cleaned = cleaned.replace(wrong, correct)
+        # タイムスタンプパターンに一致する部分を抽出
+        timestamp_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[:.=](\d{2})[:.=]?(\d{2})?', cleaned)
+        
+        if timestamp_match:
+            # タイムスタンプ部分のみ修正
+            timestamp_part = timestamp_match.group(0)
+            
+            # 慎重な置換（数字の文脈でのみ）
+            replacements = {
+                '=': '.',  # = -> .（タイムスタンプ区切り文字として）
+            }
+            
+            for wrong, correct in replacements.items():
+                timestamp_part = timestamp_part.replace(wrong, correct)
+            
+            # 元の文字列の該当部分を置換
+            cleaned = cleaned.replace(timestamp_match.group(0), timestamp_part)
         
         return cleaned
     
@@ -1153,7 +1187,7 @@ class XiaomiVideoExifEnchanter:
     
     def _move_to_failed_folder(self, input_path: str, reason: str = "Unknown error", 
                               output_dir: Optional[str] = None) -> None:
-        """失敗したファイルをfailedフォルダに移動（下位互換性のため）"""
+        """失敗したファイルをfailedフォルダにコピー（元ファイルは保持、下位互換性のため）"""
         from file_manager import FileManager
         file_manager = FileManager(debug=self.debug)
         file_manager.move_to_failed_folder(input_path, reason, output_dir)
