@@ -1,2 +1,0 @@
-Error: FFmpeg failed
-Timestamp: 2025-07-03T00:20:18.644498

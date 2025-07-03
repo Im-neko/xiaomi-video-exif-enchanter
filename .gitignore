@@ -43,6 +43,7 @@ Thumbs.db
 test_videos/
 output/
 debug/
+failed/
 *.mp4
 !sample.mp4
 *.avi
@@ -66,6 +67,10 @@ debug/
 *.f4a
 *.f4b
 *.jpg
+*.error.txt
+*_enhanced.*
+debug_*.jpg
+crop_*.jpg
 
 # Testing
 .pytest_cache/

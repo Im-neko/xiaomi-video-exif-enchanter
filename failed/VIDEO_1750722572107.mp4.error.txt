@@ -1,3 +1,0 @@
-Error: Timestamp parse failed: 2025/06/20
-Timestamp: 1751385312.625899
-Original Path: ./input/VIDEO_1750722572107.mp4
