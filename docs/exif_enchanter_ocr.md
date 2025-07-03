@@ -7,16 +7,18 @@
 ## 特徴
 
 ### ✅ 最高レベルのOCR精度
-- 7種類の画像前処理バリエーション
+- 24種類の画像前処理バリエーション
 - EasyOCR + Tesseract の複数エンジン利用
 - 高度な画像処理技術（コントラスト調整、ノイズ除去等）
+- 早期終了最適化で効率的な処理
 - 最適結果の自動選択アルゴリズム
 
-### ✅ 高度な前処理技術
+### ✅ 高度な前処理技術（24バリエーション）
 - **画像拡大**: 2倍、3倍拡大でOCR精度向上
 - **コントラスト強化**: CLAHE（適応的ヒストグラム平均化）
 - **余白追加**: OCRエンジンの境界認識向上
 - **ノイズ除去**: ガウシアンフィルタ、モルフォロジー演算
+- **早期終了最適化**: 高信頼度結果で即座に処理を終了
 
 ### ✅ 複数エンジン対応
 - **EasyOCR**: メインエンジン（深層学習ベース）
@@ -39,6 +41,9 @@ python exif_enchanter_ocr.py sample.mp4 --debug
 
 # GPU使用で高速化
 python exif_enchanter_ocr.py sample.mp4 --gpu
+
+# 早期終了最適化で効率化
+python exif_enchanter_ocr.py sample.mp4 --early-exit-threshold 0.8
 ```
 
 ### 高度な設定
@@ -130,9 +135,9 @@ TIMESTAMP_PATTERNS = [
 
 ### 処理時間（sample.mp4）
 - **フレーム抽出**: 0.017秒
-- **前処理 + OCR**: 2-5秒（7バリエーション）
+- **前処理 + OCR**: 2-5秒（24バリエーション、早期終了最適化）
 - **EXIF埋め込み**: 0.5-2.0秒
-- **総処理時間**: 3-8秒
+- **総処理時間**: 3-8秒（早期終了で大幅短縮可能）
 
 ### 精度比較
 | 処理方式 | 精度 | 処理時間 |
@@ -161,16 +166,18 @@ python exif_enchanter_ocr.py sample.mp4 --debug
 - `debug/debug_variant_sample_4_enlarged_2x_contrast.jpg`
 - `debug/debug_variant_sample_5_padded_uniform_20.jpg`
 - `debug/debug_variant_sample_6_padded_contrast.jpg`
+- ... （計24バリエーション、早期終了時は途中で停止）
 
 ### OCR結果詳細
 ```
 Starting enhanced OCR extraction...
-Saved 7 debug variants for sample in debug/
-  Trying variant 1/7: original
+Saved 24 debug variants for sample in debug/
+  Trying variant 1/24: original
   EasyOCR raw results for original: [(..., '2025/05/28 19.41.14', 0.858)]
     Text: '2025/05/28 19.41.14', Confidence: 0.858
     Found timestamp match: '2025/05/28 19.41.14' with pattern
   Tesseract result for original: '2025/05/28 19.41.14'
+Early exit triggered with confidence 0.858 >= 0.8
 Enhanced OCR selected: '2025/05/28 19.41.14' from EasyOCR (original) with confidence 0.858
 Debug frame saved: debug/debug_sample.mp4.jpg
 Cropped area saved: debug/crop_sample.mp4.jpg
@@ -228,12 +235,14 @@ python exif_enchanter_ocr.py video.mp4  # Tesseractエラーは自動的にス�
 
 ## 他スクリプトとの比較
 
-| 項目 | exif_enchanter.py | **exif_enchanter_ocr.py** | exif_enchanter_ml.py |
-|------|-------------------|----------------------|---------------------|
-| OCR精度 | ⭐⭐⭐ | **⭐⭐⭐⭐** | ⭐⭐⭐⭐⭐ |
-| 処理速度 | ⭐⭐⭐⭐ | **⭐⭐⭐** | ⭐⭐ |
-| 困難ケース対応 | ⭐⭐ | **⭐⭐⭐⭐⭐** | ⭐⭐⭐⭐ |
-| デバッグ機能 | ⭐⭐⭐ | **⭐⭐⭐⭐⭐** | ⭐⭐⭐ |
-| リソース使用量 | ⭐⭐⭐⭐⭐ | **⭐⭐⭐** | ⭐⭐ |
+| 項目 | exif_enchanter.py | **exif_enchanter_ocr.py** |
+|------|-------------------|----------------------|
+| 安定性 | ⭐⭐⭐⭐⭐ | **⭐⭐⭐⭐** |
+| OCR精度 | ⭐⭐⭐ | **⭐⭐⭐⭐⭐** |
+| 処理速度 | ⭐⭐⭐⭐ | **⭐⭐⭐** |
+| 困難ケース対応 | ⭐⭐⭐ | **⭐⭐⭐⭐⭐** |
+| デバッグ機能 | ⭐⭐⭐ | **⭐⭐⭐⭐⭐** |
+| リソース使用量 | ⭐⭐⭐⭐⭐ | **⭐⭐⭐⭐** |
+| 早期終了最適化 | ❌ | **⭐⭐⭐⭐⭐** |
 
 **推奨場面**: OCR精度重視、困難なケース、詳細分析必要時

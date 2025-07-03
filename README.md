@@ -253,16 +253,16 @@ python exif_enchanter.py --batch /path/to/videos/ --location "寝室" --debug
 #### スクリプト固有オプション
 
 **標準スクリプト (`exif_enchanter.py`)**
-- `--disable-enhanced-ocr`: 強化OCR無効化（基本OCRのみ使用）
+- `--gpu`: GPU使用（OCR処理高速化）
+- `--confidence`: OCR信頼度閾値（デフォルト：0.5）
+- `--languages`: OCR言語設定（デフォルト：['en']）
 
 **強化OCRスクリプト (`exif_enchanter_ocr.py`)**
-- `--disable-enhanced-ocr`: 強化OCR無効化（基本OCRのみ使用）
 - `--gpu`: GPU使用（OCR処理高速化）
-
-**MLスクリプト (`exif_enchanter_ml.py`)**
-- `--model-path`: MLモデルファイルパス（デフォルト: xiaomi_timestamp_model_best.pth）
-- `--disable-fallback-ocr`: OCRフォールバック無効化（MLのみ使用）
-- `--gpu`: GPU使用（ML処理高速化）
+- `--confidence`: OCR信頼度閾値（デフォルト：0.5）
+- `--languages`: OCR言語設定（デフォルト：['en']）
+- `--early-exit-threshold`: 早期終了信頼度閾値（デフォルト：0.8）
+- `--max-workers`: 並列処理数（バッチ処理用）
 
 #### バッチ処理専用オプション
 - `--no-skip-errors`: 最初のエラーで処理停止（デフォルト：エラーをスキップして継続）
